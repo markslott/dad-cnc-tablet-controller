@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import queue
 import struct
+import subprocess
 import threading
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -76,24 +78,85 @@ def _ole_names(clsid: str | None) -> list[str]:
     return names
 
 
+def _mach3_exe_on_disk() -> str | None:
+    candidates = (
+        r"C:\Mach3\Mach3.exe",
+        os.path.expandvars(r"%ProgramFiles(x86)%\Mach3\Mach3.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Mach3\Mach3.exe"),
+    )
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+def _mach3_exe_running() -> str | None:
+    """Path of a running Mach3.exe, or a dummy string if running but path unknown."""
+    try:
+        import win32com.client
+
+        wmi = win32com.client.GetObject("winmgmts:")
+        for proc in wmi.ExecQuery("SELECT ExecutablePath FROM Win32_Process WHERE Name='Mach3.exe'"):
+            path = getattr(proc, "ExecutablePath", None)
+            if path and os.path.isfile(str(path)):
+                return str(path)
+            return "Mach3.exe"
+    except Exception:
+        pass
+    try:
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        out = subprocess.check_output(
+            ["tasklist", "/FI", "IMAGENAME eq Mach3.exe", "/NH"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+            creationflags=creationflags,
+        )
+        if "Mach3.exe" in out:
+            return _mach3_exe_on_disk() or "Mach3.exe"
+    except Exception:
+        pass
+    return None
+
+
+def _ensure_hkcu_ole(exe_path: str | None) -> None:
+    """Write per-user Mach4.Document keys so 64-bit Python can CreateObject."""
+    try:
+        import winreg
+    except ImportError:
+        return
+    clsid = _MACH3_CLSID
+
+    def _set(path: str, value: str) -> None:
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, path) as key:
+            winreg.SetValueEx(key, "", 0, winreg.REG_SZ, value)
+
+    _set(r"Software\Classes\Mach4.Document", "Mach4.Document")
+    _set(r"Software\Classes\Mach4.Document\CLSID", clsid)
+    _set(rf"Software\Classes\CLSID\{clsid}", "Mach4 Document")
+    _set(rf"Software\Classes\CLSID\{clsid}\ProgID", "Mach4.Document")
+    if exe_path and os.path.isfile(exe_path):
+        _set(rf"Software\Classes\CLSID\{clsid}\LocalServer32", f'"{exe_path}"')
+
+
 def _open_mach3_document(
     get_active_object: Callable[[str], Any],
     dispatch: Callable[[str], Any],
     names: list[str],
+    *,
+    process_running: bool = False,
 ) -> Any:
     last: BaseException | None = None
-    not_running: BaseException | None = None
+    not_in_rot: BaseException | None = None
     for name in names:
         try:
             return get_active_object(name)
         except Exception as exc:  # noqa: BLE001 — try the next OLE name
             last = exc
             if _hresult(exc) == _MK_E_UNAVAILABLE:
-                not_running = exc
-    # Mach3 is not in the running-object table. Do not Dispatch: that can
-    # launch a second Mach3 without the mill profile.
-    if not_running is not None:
-        raise not_running
+                not_in_rot = exc
+    if not_in_rot is not None and not process_running:
+        raise not_in_rot
     for name in names:
         try:
             return dispatch(name)
@@ -104,7 +167,19 @@ def _open_mach3_document(
     raise last
 
 
-def _attach_hint(exc: BaseException, *, bits: int, clsid: str | None) -> str:
+def _attach_hint(
+    exc: BaseException,
+    *,
+    bits: int,
+    clsid: str | None,
+    process_running: bool = False,
+) -> str:
+    if process_running:
+        return (
+            "Mach3 is running but OLE attach failed. "
+            "If Mach3 was started as Administrator, right-click the pendant "
+            "shortcut and Run as administrator too (elevation must match)."
+        )
     code = _hresult(exc)
     if code == _MK_E_UNAVAILABLE:
         return "Start Mach3 first, then start this server."
@@ -154,12 +229,27 @@ class ComMach3Client:
 
         pythoncom.CoInitialize()
         try:
+            running = _mach3_exe_running()
+            exe = running if running and os.path.isfile(running) else _mach3_exe_on_disk()
+            if exe:
+                _ensure_hkcu_ole(exe)
             clsid = _registry_clsid("Mach4.Document") or _MACH3_CLSID
+            process_running = running is not None
             try:
-                mach = _open_mach3_document(GetActiveObject, Dispatch, _ole_names(clsid))
+                mach = _open_mach3_document(
+                    GetActiveObject,
+                    Dispatch,
+                    _ole_names(clsid),
+                    process_running=process_running,
+                )
                 self._script = mach.GetScriptDispatch()
             except Exception as exc:  # noqa: BLE001 — COM errors are opaque
-                hint = _attach_hint(exc, bits=struct.calcsize("P") * 8, clsid=clsid)
+                hint = _attach_hint(
+                    exc,
+                    bits=struct.calcsize("P") * 8,
+                    clsid=clsid,
+                    process_running=process_running,
+                )
                 self._connect_error = f"could not attach to Mach3 ({exc}). {hint}"
                 self._ready.set()
                 return

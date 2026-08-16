@@ -78,7 +78,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        client = state["client"] or create_client(settings.backend)
+        client = state["client"] or create_client(
+            settings.backend,
+            modbus_host=settings.modbus_host,
+            modbus_port=settings.modbus_port,
+        )
         state["client"] = client
         watchdog = JogWatchdog(client, timeout_s=settings.watchdog_s)
         state["watchdog"] = watchdog

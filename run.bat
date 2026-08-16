@@ -2,16 +2,19 @@
 setlocal
 cd /d "%~dp0"
 
-if not defined MACH3_BACKEND set MACH3_BACKEND=com
+if not defined MACH3_BACKEND set MACH3_BACKEND=modbus
 if not defined MACH3_HOST set MACH3_HOST=0.0.0.0
 if not defined MACH3_PORT set MACH3_PORT=8080
+if not defined MACH3_MODBUS_HOST set MACH3_MODBUS_HOST=127.0.0.1
+if not defined MACH3_MODBUS_PORT set MACH3_MODBUS_PORT=1502
 
 echo.
 echo Mach3 Tablet Pendant
 echo   backend=%MACH3_BACKEND%
 echo   On this PC:  http://127.0.0.1:%MACH3_PORT%/
 echo   On tablet:   http://%COMPUTERNAME%:%MACH3_PORT%/
-echo   Start Mach3 BEFORE this window. Physical E-stop stays the real E-stop.
+echo   Mach3 Modbus slave: %MACH3_MODBUS_HOST%:%MACH3_MODBUS_PORT%
+echo   Enable Mach3 TCP Modbus Run. Physical E-stop stays the real E-stop.
 echo   Close this window to stop the pendant server.
 echo.
 
@@ -32,6 +35,6 @@ if exist "%~dp0.venv\Scripts\python.exe" (
 if errorlevel 1 (
   echo.
   echo Server exited with an error.
-  echo Start Mach3 first, then this window. See the traceback above.
+  echo See the traceback above. The tablet UI can start before Mach3 is polling.
   pause
 )
