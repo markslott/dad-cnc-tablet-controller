@@ -1,0 +1,124 @@
+' Mach3 Pendant macropump — stand-in for Brains we cannot generate (.brn is closed).
+' Copy this file to C:\Mach3\macros\<your profile>\macropump.m1s
+' Config → General Config → tick Run Macro Pump.
+' Pendant server must already be running on http://127.0.0.1:8080
+'
+' UserDRO 2200-2203 remember last Stop/Reset/mode/FRO so we edge-trigger.
+' OEM: Emergency 19, Reset 800, Start 804, Stop 1003, Reset btn 1021, FRO 818
+' Jog mode buttons 204 (cont) / 205 (inc), increment DRO 3.
+
+On Error Resume Next
+
+Dim http, body, resp, parts
+Dim x, y, z, estop, resetok, incycle, fro
+Dim jx, jy, jz, stopCmd, resetCmd, froCmd, modeCmd
+Dim spaxis, spdir, spsize, lastStop, lastReset, lastMode, lastFro
+
+Err.Clear
+Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+If Err.Number <> 0 Then
+  Err.Clear
+  Set http = CreateObject("MSXML2.ServerXMLHTTP")
+End If
+If http Is Nothing Then
+  JogOff(0)
+  JogOff(1)
+  JogOff(2)
+Else
+  http.setTimeouts 300, 300, 300, 300
+  x = CLng(GetDRO(0) * 10000)
+  y = CLng(GetDRO(1) * 10000)
+  z = CLng(GetDRO(2) * 10000)
+  If GetOEMLED(19) <> 0 Then estop = 1 Else estop = 0
+  If GetOEMLED(800) <> 0 Then resetok = 1 Else resetok = 0
+  If GetOEMLED(804) <> 0 Then incycle = 1 Else incycle = 0
+  fro = CLng(GetOEMDRO(818))
+  body = x & "|" & y & "|" & z & "|" & estop & "|" & resetok & "|" & incycle & "|" & fro
+
+  Err.Clear
+  http.Open "POST", "http://127.0.0.1:8080/api/mach3/pump", False
+  http.setRequestHeader "Content-Type", "text/plain"
+  http.Send body
+  If Err.Number <> 0 Then
+    JogOff(0)
+    JogOff(1)
+    JogOff(2)
+    Err.Clear
+  Else
+    resp = http.responseText
+    parts = Split(resp, "|")
+    If UBound(parts) >= 9 Then
+      jx = CLng(parts(0))
+      jy = CLng(parts(1))
+      jz = CLng(parts(2))
+      stopCmd = CLng(parts(3))
+      resetCmd = CLng(parts(4))
+      froCmd = CLng(parts(5))
+      modeCmd = CLng(parts(6))
+      spaxis = CLng(parts(7))
+      spdir = CLng(parts(8))
+      spsize = CLng(parts(9))
+
+      lastStop = GetUserDRO(2200)
+      lastReset = GetUserDRO(2201)
+      lastMode = GetUserDRO(2202)
+      lastFro = GetUserDRO(2203)
+
+      If modeCmd <> lastMode Then
+        If modeCmd = 1 Then
+          DoOEMButton(205)
+        Else
+          DoOEMButton(204)
+        End If
+      End If
+      SetUserDRO(2202, modeCmd)
+
+      If froCmd <> lastFro Then
+        SetOEMDRO(818, froCmd)
+        SetUserDRO(2203, froCmd)
+      End If
+
+      If stopCmd <> 0 And lastStop = 0 Then
+        DoOEMButton(1003)
+        JogOff(0)
+        JogOff(1)
+        JogOff(2)
+      End If
+      SetUserDRO(2200, stopCmd)
+
+      If resetCmd <> 0 And lastReset = 0 Then
+        DoOEMButton(1021)
+      End If
+      SetUserDRO(2201, resetCmd)
+
+      If spaxis >= 0 Then
+        SetOEMDRO(3, spsize / 1000)
+        JogOn(spaxis, spdir)
+        JogOff(spaxis)
+      Else
+        If jx = 1 Then
+          JogOn(0, 0)
+        ElseIf jx = 2 Then
+          JogOn(0, 1)
+        Else
+          JogOff(0)
+        End If
+        If jy = 1 Then
+          JogOn(1, 0)
+        ElseIf jy = 2 Then
+          JogOn(1, 1)
+        Else
+          JogOff(1)
+        End If
+        If jz = 1 Then
+          JogOn(2, 0)
+        ElseIf jz = 2 Then
+          JogOn(2, 1)
+        Else
+          JogOff(2)
+        End If
+      End If
+    End If
+  End If
+End If
+Set http = Nothing

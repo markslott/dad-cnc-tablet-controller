@@ -101,7 +101,9 @@
       els.ready.className = "pill pill-down";
       els.machMsg.hidden = false;
       els.machMsg.textContent = s.error
-        || "Mach3 is not polling this PC on port 502. Start the pendant, Master address 127.0.0.1, Test, then TCP Modbus Run.";
+        || (s.backend === "pump"
+          ? "Copy macropump.m1s into this Mach3 profile's macros folder and tick Run Macro Pump."
+          : "Mach3 is not polling this PC on port 502. Start the pendant, Master address 127.0.0.1, Test, then TCP Modbus Run.");
     } else if (s.estop) {
       els.ready.textContent = "E-STOP";
       els.ready.className = "pill pill-down";
@@ -112,7 +114,9 @@
       els.ready.className = "pill pill-warn";
       els.machMsg.hidden = false;
       els.machMsg.textContent = s.error
-        || "RESET here only pulses Modbus Cfg #0 address 4. Mach3 will not Reset until a Brain maps that to the Reset button (OEM 1021), and Cfg #1 address 108 from the Reset LED.";
+        || (s.backend === "modbus"
+          ? "RESET here only pulses Modbus Cfg #0 address 4. Mach3 will not Reset until a Brain maps that to the Reset button (OEM 1021), and Cfg #1 address 108 from the Reset LED."
+          : "Press RESET here, or Reset on the Mach3 screen.");
     } else if (s.in_cycle) {
       els.ready.textContent = "In cycle";
       els.ready.className = "pill pill-warn";

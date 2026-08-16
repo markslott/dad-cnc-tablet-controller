@@ -21,6 +21,10 @@ def create_client(
         from src.mach3.com_client import ComMach3Client
 
         return ComMach3Client()
+    if name == "pump":
+        from src.mach3.pump_client import PumpMach3Client
+
+        return PumpMach3Client()
     if name == "modbus":
         from src.mach3.modbus_client import ModbusMach3Client
 
@@ -28,4 +32,4 @@ def create_client(
         port_raw = os.environ.get("MACH3_MODBUS_PORT", "502")
         port = modbus_port if modbus_port is not None else int(port_raw)
         return ModbusMach3Client(host=host, port=port, start_server=start_server)
-    raise ValueError(f"unknown MACH3_BACKEND {name!r}; use 'mock', 'modbus', or 'com'")
+    raise ValueError(f"unknown MACH3_BACKEND {name!r}; use 'mock', 'pump', 'modbus', or 'com'")

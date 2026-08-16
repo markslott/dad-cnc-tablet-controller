@@ -32,9 +32,9 @@ OEM_BTN_RESET = 1021
 OEM_DRO_JOG_INCREMENT = 3
 OEM_DRO_FEED_OVERRIDE = 818
 
-# OEM LEDs — Reset LED ON means Mach3 is ready (not flashing/estop).
-OEM_LED_ESTOP = 12
-OEM_LED_IN_CYCLE = 11
-OEM_LED_RESET_OK = 825
+# OEM LEDs — Macro Programmer's Reference: Emergency 19, Reset 800, Start 804.
+OEM_LED_ESTOP = 19
+OEM_LED_IN_CYCLE = 804
+OEM_LED_RESET_OK = 800
 
 AXIS_NAMES = {Axis.X: "X", Axis.Y: "Y", Axis.Z: "Z"}

@@ -18,7 +18,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,15 @@ from src.server.watchdog import JogWatchdog
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 PIN_HEADER = "x-shop-pin"
+PUMP_PATH = "/api/mach3/pump"
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _is_loopback(host: str | None) -> bool:
+    if not host:
+        return False
+    h = host.lower().split("%")[0]
+    return h in _LOOPBACK_HOSTS or h.endswith("127.0.0.1")
 
 
 class JogAxisBody(BaseModel):
@@ -118,6 +127,8 @@ def create_app(
         if request.method == "OPTIONS":
             return await call_next(request)
         open_paths = {"/api/config", "/api/auth", "/manifest.json", "/sw.js", "/icon.svg"}
+        if path == PUMP_PATH and _is_loopback(request.client.host if request.client else None):
+            return await call_next(request)
         if path.startswith("/api/") and path not in open_paths:
             pin = request.headers.get(PIN_HEADER)
             if not _pin_ok(settings, pin):
@@ -227,6 +238,22 @@ def create_app(
         await asyncio.to_thread(client().do_reset)
         watchdog().mark_jog_off_all()
         return {"ok": True}
+
+    @app.post("/api/mach3/pump")
+    async def api_mach3_pump(request: Request):
+        host = request.client.host if request.client else None
+        if not _is_loopback(host):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "pump is localhost only")
+        mach3 = client()
+        exchange = getattr(mach3, "exchange_pump", None)
+        if exchange is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "MACH3_BACKEND is not pump")
+        body = (await request.body()).decode("ascii", errors="replace")
+        try:
+            reply = await asyncio.to_thread(exchange, body)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return PlainTextResponse(reply)
 
     @app.websocket("/ws/state")
     async def ws_state(

@@ -21,3 +21,4 @@ def test_factory_rejects_unknown():
     with pytest.raises(ValueError) as excinfo:
         create_client("plc")
     assert "plc" in str(excinfo.value)
+    assert "pump" in str(excinfo.value)
