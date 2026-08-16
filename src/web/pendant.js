@@ -102,7 +102,7 @@
       els.machMsg.hidden = false;
       els.machMsg.textContent = s.error
         || (s.backend === "pump"
-          ? "Copy macropump.m1s into this Mach3 profile's macros folder and tick Run Macro Pump."
+          ? "Tick Run Macro Pump and check C:\\Mach3\\pendant-pump.log. If that file is missing, macropump.m1s is not in this profile's macros folder."
           : "Mach3 is not polling this PC on port 502. Start the pendant, Master address 127.0.0.1, Test, then TCP Modbus Run.");
     } else if (s.estop) {
       els.ready.textContent = "E-STOP";

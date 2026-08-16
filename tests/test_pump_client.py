@@ -13,8 +13,8 @@ def test_factory_pump():
     client.close()
 
 
-def test_disconnected_until_pump_posts():
-    client = PumpMach3Client()
+def test_disconnected_until_pump_posts(tmp_path):
+    client = PumpMach3Client(pump_dir=tmp_path)
     status = client.get_status()
     assert status.connected is False
     assert status.can_jog is False
@@ -22,8 +22,8 @@ def test_disconnected_until_pump_posts():
     client.close()
 
 
-def test_exchange_sets_dro_and_allows_jog_when_ready():
-    client = PumpMach3Client()
+def test_exchange_sets_dro_and_allows_jog_when_ready(tmp_path):
+    client = PumpMach3Client(pump_dir=tmp_path)
     reply = client.exchange_pump("12345|-50000|10|0|1|0|100")
     assert reply.startswith("0|0|0|")
     status = client.get_status()
@@ -37,8 +37,8 @@ def test_exchange_sets_dro_and_allows_jog_when_ready():
     client.close()
 
 
-def test_reset_pulse_appears_then_clears():
-    client = PumpMach3Client()
+def test_reset_pulse_appears_then_clears(tmp_path):
+    client = PumpMach3Client(pump_dir=tmp_path)
     client.exchange_pump("0|0|0|0|1|0|100")
     client.do_reset()
     reply = client.exchange_pump("0|0|0|0|1|0|100")
@@ -58,8 +58,20 @@ def test_parse_and_format_roundtrip():
     assert line == "1|0|2|0|1|110|0|1|0|10"
 
 
-def test_pump_http_localhost_updates_status():
-    mach3 = PumpMach3Client()
+def test_file_exchange_reads_status_and_writes_cmd(tmp_path):
+    client = PumpMach3Client(pump_dir=tmp_path)
+    (tmp_path / "pendant-status.txt").write_text("25000|0|0|0|1|0|100\n", encoding="ascii")
+    status = client.get_status()
+    assert status.connected is True
+    assert status.dro.x == 2.5
+    assert status.can_jog is True
+    cmd = (tmp_path / "pendant-cmd.txt").read_text(encoding="ascii")
+    assert cmd.split("|")[0] == "0"
+    client.close()
+
+
+def test_pump_http_localhost_updates_status(tmp_path):
+    mach3 = PumpMach3Client(pump_dir=tmp_path)
     app = create_app(mach3=mach3, settings=make_settings(backend="pump"))
     with TestClient(app) as client:
         denied = client.get("/api/status")

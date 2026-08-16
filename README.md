@@ -17,7 +17,7 @@ Not in v1: Cycle Start, loading files, spindle, homing, probing, offsets.
 ## How it is wired
 
 ```
-Tablet browser  --Wi-Fi-->  Python server on Mach3 PC  <--localhost HTTP-->  Mach3 macropump.m1s  --> mill
+Tablet browser  --Wi-Fi-->  Python server on Mach3 PC  <--files in C:\Mach3-->  Mach3 macropump.m1s  --> mill
 ```
 
 Mach3 Brain `.brn` files cannot be generated: ArtSoft never documented the format. The shop path is a **macropump** script that does the same job (DRO, jog, Stop, Reset). The tablet never talks to Mach3 directly.
@@ -31,7 +31,7 @@ Mach3 Brain `.brn` files cannot be generated: ArtSoft never documented the forma
 - The server stops all jogging if no heartbeat arrives for `MACH3_WATCHDOG_MS` (default 200 ms) while an axis is jogging.
 - Jog is refused unless Mach3 looks ready (not in E-stop / Reset needed / in cycle).
 - Optional shop PIN (`MACH3_PIN`) so a random phone on the Wi-Fi cannot jog.
-- If the Python process dies while jogging, the macropump HTTP call fails and Mach3 jogs off.
+- If the Python process dies while jogging, the command file goes idle and Mach3 jogs off.
 
 If 200 ms is too tight for a weak shop Wi-Fi, raise `MACH3_WATCHDOG_MS` (for example 400). Do not disable it.
 
@@ -81,7 +81,7 @@ run.bat
 
 ### Mach3 macropump (shop default)
 
-`mach3/macropump.m1s` is the Brain stand-in. Mach3 runs it continuously when **Run Macro Pump** is ticked. Each cycle it POSTs DRO and LED state to `http://127.0.0.1:8080/api/mach3/pump` and applies the command line that comes back (jog, Stop OEM 1003, Reset OEM 1021, FRO DRO 818).
+`mach3/macropump.m1s` is the Brain stand-in. Mach3 runs it continuously when **Run Macro Pump** is ticked. Each cycle it writes DRO/LEDs to `C:\Mach3\pendant-status.txt` and reads jog/Stop/Reset from `C:\Mach3\pendant-cmd.txt` (Mach3 VB cannot reliably POST HTTP). If the pump is running, `C:\Mach3\pendant-pump.log` updates.
 
 If this profile already had a macropump, restore `macropump.bak-pendant.m1s` and merge by hand.
 
@@ -174,11 +174,11 @@ If DRO works but jog/FRO does not on the optional Modbus path, the Brain termina
 
 ## Troubleshooting
 
-- **waiting for Mach3 macropump** — `macropump.m1s` is not running. Run `install-macropump.bat`, tick **Run Macro Pump**, restart Mach3, start the pendant first. Console should print `Mach3 macropump is talking to the pendant.`
+- **waiting for Mach3 macropump** — the pump is not writing `C:\Mach3\pendant-status.txt`. Run `install-macropump.bat` again, tick **Run Macro Pump**, restart Mach3. Open `C:\Mach3\pendant-pump.log`: missing means the script is not in this profile’s macros folder. Then start the pendant; console should print `Mach3 macropump is talking`.
 - **waiting for Mach3 TCP Modbus / connection timeout** — only if `MACH3_BACKEND=modbus`. Mach3 is not reaching port 502. Master address must be `127.0.0.1` or this PC’s LAN IP (not the SmoothStepper/controller). Pendant must be running first; if listen failed, Run as administrator.
 - **DRO stays at zero** — macropump is not posting, or (modbus) Cfg #1 / status Brain is not writing registers 100–105.
 - **Reset needed / RESET does nothing** — with pump, a Reset click should print `Reset command queued for macropump` and Mach3 should press OEM 1021. If Mach3 Reset LED 800 is inverted for your screenset, the tablet may stay on Reset needed even when Mach3 is ready.
 - **Jog does nothing** — pump not applying JogOn, or (modbus) command Brain is not reading registers 0–2.
-- **Axis keeps jogging after the pendant dies** — pump should JogOff on HTTP fail; do not uncheck Run Macro Pump while jogging.
+- **Axis keeps jogging after the pendant dies** — cmd file should go to jog-off; do not uncheck Run Macro Pump while jogging.
 - **Tablet cannot connect** — same LAN, Windows firewall allow port 8080 inbound, PC IP has not changed.
 - **Jog feels laggy or watchdog false-trips** — raise `MACH3_WATCHDOG_MS` slightly; keep press-and-hold jogging (never tap-to-start continuous jog).

@@ -1,124 +1,180 @@
-' Mach3 Pendant macropump — stand-in for Brains we cannot generate (.brn is closed).
-' Copy this file to C:\Mach3\macros\<your profile>\macropump.m1s
-' Config → General Config → tick Run Macro Pump.
-' Pendant server must already be running on http://127.0.0.1:8080
-'
-' UserDRO 2200-2203 remember last Stop/Reset/mode/FRO so we edge-trigger.
-' OEM: Emergency 19, Reset 800, Start 804, Stop 1003, Reset btn 1021, FRO 818
-' Jog mode buttons 204 (cont) / 205 (inc), increment DRO 3.
+' Pendant macropump. Tick Config / General Config / Run Macro Pump.
+' Talks to the pendant with two files (Mach3 VB cannot reliably do HTTP):
+'   C:\Mach3\pendant-status.txt  (this script writes DRO/LEDs)
+'   C:\Mach3\pendant-cmd.txt     (Python writes jog/Stop/Reset)
+' If this is running, C:\Mach3\pendant-pump.log updates every cycle.
 
 On Error Resume Next
 
-Dim http, body, resp, parts
 Dim x, y, z, estop, resetok, incycle, fro
+Dim body, resp, rest, p
 Dim jx, jy, jz, stopCmd, resetCmd, froCmd, modeCmd
-Dim spaxis, spdir, spsize, lastStop, lastReset, lastMode, lastFro
+Dim spaxis, spdir, spsize
+Dim lastStop, lastReset, lastMode, lastFro, lastStep
+
+x = CLng(GetDRO(0) * 10000)
+y = CLng(GetDRO(1) * 10000)
+z = CLng(GetDRO(2) * 10000)
+If GetOEMLED(19) <> 0 Then
+  estop = 1
+Else
+  estop = 0
+End If
+If GetOEMLED(800) <> 0 Then
+  resetok = 1
+Else
+  resetok = 0
+End If
+If GetOEMLED(804) <> 0 Then
+  incycle = 1
+Else
+  incycle = 0
+End If
+fro = CLng(GetOEMDRO(818))
+body = x & "|" & y & "|" & z & "|" & estop & "|" & resetok & "|" & incycle & "|" & fro
 
 Err.Clear
-Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+Open "C:\Mach3\pendant-status.txt" For Output As #1
+Print #1, body
+Close #1
+
+Open "C:\Mach3\pendant-pump.log" For Output As #1
+Print #1, "macropump running"
+Print #1, body
+Close #1
+
+jx = 0
+jy = 0
+jz = 0
+stopCmd = 0
+resetCmd = 0
+froCmd = 100
+modeCmd = 0
+spaxis = -1
+spdir = 0
+spsize = 0
+resp = ""
+
+Err.Clear
+Open "C:\Mach3\pendant-cmd.txt" For Input As #1
+Line Input #1, resp
+Close #1
+
 If Err.Number <> 0 Then
-  Err.Clear
-  Set http = CreateObject("MSXML2.ServerXMLHTTP")
-End If
-If http Is Nothing Then
   JogOff(0)
   JogOff(1)
   JogOff(2)
-Else
-  http.setTimeouts 300, 300, 300, 300
-  x = CLng(GetDRO(0) * 10000)
-  y = CLng(GetDRO(1) * 10000)
-  z = CLng(GetDRO(2) * 10000)
-  If GetOEMLED(19) <> 0 Then estop = 1 Else estop = 0
-  If GetOEMLED(800) <> 0 Then resetok = 1 Else resetok = 0
-  If GetOEMLED(804) <> 0 Then incycle = 1 Else incycle = 0
-  fro = CLng(GetOEMDRO(818))
-  body = x & "|" & y & "|" & z & "|" & estop & "|" & resetok & "|" & incycle & "|" & fro
-
   Err.Clear
-  http.Open "POST", "http://127.0.0.1:8080/api/mach3/pump", False
-  http.setRequestHeader "Content-Type", "text/plain"
-  http.Send body
-  If Err.Number <> 0 Then
-    JogOff(0)
-    JogOff(1)
-    JogOff(2)
-    Err.Clear
+Else
+If resp <> "" Then
+  rest = resp & "|"
+  p = InStr(rest, "|")
+  jx = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  jy = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  jz = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  stopCmd = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  resetCmd = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  froCmd = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  modeCmd = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  spaxis = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  spdir = CLng(Left(rest, p - 1))
+  rest = Mid(rest, p + 1)
+  p = InStr(rest, "|")
+  If p = 0 Then
+    spsize = CLng(rest)
   Else
-    resp = http.responseText
-    parts = Split(resp, "|")
-    If UBound(parts) >= 9 Then
-      jx = CLng(parts(0))
-      jy = CLng(parts(1))
-      jz = CLng(parts(2))
-      stopCmd = CLng(parts(3))
-      resetCmd = CLng(parts(4))
-      froCmd = CLng(parts(5))
-      modeCmd = CLng(parts(6))
-      spaxis = CLng(parts(7))
-      spdir = CLng(parts(8))
-      spsize = CLng(parts(9))
+    spsize = CLng(Left(rest, p - 1))
+  End If
 
-      lastStop = GetUserDRO(2200)
-      lastReset = GetUserDRO(2201)
-      lastMode = GetUserDRO(2202)
-      lastFro = GetUserDRO(2203)
+  lastStop = GetUserDRO(2200)
+  lastReset = GetUserDRO(2201)
+  lastMode = GetUserDRO(2202)
+  lastFro = GetUserDRO(2203)
+  lastStep = GetUserDRO(2204)
 
-      If modeCmd <> lastMode Then
-        If modeCmd = 1 Then
-          DoOEMButton(205)
-        Else
-          DoOEMButton(204)
-        End If
-      End If
-      SetUserDRO(2202, modeCmd)
+  If modeCmd <> lastMode Then
+    If modeCmd = 1 Then
+      DoOEMButton(205)
+    Else
+      DoOEMButton(204)
+    End If
+  End If
+  SetUserDRO(2202, modeCmd)
 
-      If froCmd <> lastFro Then
-        SetOEMDRO(818, froCmd)
-        SetUserDRO(2203, froCmd)
-      End If
+  If froCmd <> lastFro Then
+    SetOEMDRO(818, froCmd)
+    SetUserDRO(2203, froCmd)
+  End If
 
-      If stopCmd <> 0 And lastStop = 0 Then
-        DoOEMButton(1003)
-        JogOff(0)
-        JogOff(1)
-        JogOff(2)
-      End If
-      SetUserDRO(2200, stopCmd)
+  If stopCmd <> 0 Then
+    If lastStop = 0 Then
+      DoOEMButton(1003)
+      JogOff(0)
+      JogOff(1)
+      JogOff(2)
+    End If
+  End If
+  SetUserDRO(2200, stopCmd)
 
-      If resetCmd <> 0 And lastReset = 0 Then
-        DoOEMButton(1021)
-      End If
-      SetUserDRO(2201, resetCmd)
+  If resetCmd <> 0 Then
+    If lastReset = 0 Then
+      DoOEMButton(1021)
+    End If
+  End If
+  SetUserDRO(2201, resetCmd)
 
-      If spaxis >= 0 Then
-        SetOEMDRO(3, spsize / 1000)
-        JogOn(spaxis, spdir)
-        JogOff(spaxis)
+  If spaxis >= 0 Then
+    If lastStep = 0 Then
+      SetOEMDRO(3, spsize / 1000)
+      JogOn(spaxis, spdir)
+      JogOff(spaxis)
+    End If
+    SetUserDRO(2204, 1)
+  Else
+    SetUserDRO(2204, 0)
+    If jx = 1 Then
+      JogOn(0, 0)
+    Else
+      If jx = 2 Then
+        JogOn(0, 1)
       Else
-        If jx = 1 Then
-          JogOn(0, 0)
-        ElseIf jx = 2 Then
-          JogOn(0, 1)
-        Else
-          JogOff(0)
-        End If
-        If jy = 1 Then
-          JogOn(1, 0)
-        ElseIf jy = 2 Then
-          JogOn(1, 1)
-        Else
-          JogOff(1)
-        End If
-        If jz = 1 Then
-          JogOn(2, 0)
-        ElseIf jz = 2 Then
-          JogOn(2, 1)
-        Else
-          JogOff(2)
-        End If
+        JogOff(0)
+      End If
+    End If
+    If jy = 1 Then
+      JogOn(1, 0)
+    Else
+      If jy = 2 Then
+        JogOn(1, 1)
+      Else
+        JogOff(1)
+      End If
+    End If
+    If jz = 1 Then
+      JogOn(2, 0)
+    Else
+      If jz = 2 Then
+        JogOn(2, 1)
+      Else
+        JogOff(2)
       End If
     End If
   End If
 End If
-Set http = Nothing
+End If

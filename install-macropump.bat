@@ -33,6 +33,8 @@ if "!FOUND!"=="0" (
 )
 
 echo.
-echo In Mach3: Config - General Config - tick Run Macro Pump - OK.
-echo Restart Mach3, start the pendant, then Reload is not needed: the pump runs by itself.
+echo After Mach3 is running with Run Macro Pump ticked, open:
+echo   C:\Mach3\pendant-pump.log
+echo If that file is missing, the script is not in this profile's macros folder.
+echo Then start the pendant. Console should say macropump is talking.
 pause

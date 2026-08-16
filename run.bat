@@ -13,7 +13,8 @@ echo Mach3 Tablet Pendant
 echo   backend=%MACH3_BACKEND%
 echo   On this PC:  http://127.0.0.1:%MACH3_PORT%/
 echo   On tablet:   http://%COMPUTERNAME%:%MACH3_PORT%/
-echo   Mach3 talks through macropump.m1s on this PC (no Brain file).
+echo   Mach3 talks through C:\Mach3\pendant-status.txt (macropump.m1s).
+echo   After Mach3 is up, C:\Mach3\pendant-pump.log should exist and update.
 echo   Close this window to stop the pendant server.
 echo.
 
