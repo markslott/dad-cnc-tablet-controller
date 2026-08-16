@@ -29,6 +29,8 @@ T = TypeVar("T")
 
 _VALID_STEP_SIZES = (0.001, 0.01, 0.1, 1.0)
 _MACH3_PROGIDS = (
+    "Mach3.Automation",
+    "Mach3.Automation.1",
     "Mach4.Document",
     "Mach4.Document.1",
     "Mach3.Document",
@@ -76,14 +78,24 @@ def _registry_clsid(progid: str) -> str | None:
 
 
 def _is_clsid_string(name: str) -> bool:
-    text = name.strip()
+    text = _normalize_clsid(name.strip())
     return len(text) == 38 and text[0] == "{" and text[-1] == "}"
+
+
+def _normalize_clsid(name: str) -> str:
+    text = name.strip()
+    if len(text) == 36 and text.count("-") == 4:
+        return "{" + text + "}"
+    return text
 
 
 def _ole_names(*extra: str | None) -> list[str]:
     names: list[str] = []
     for name in (*extra, _MACH3_CLSID, *_MACH3_PROGIDS):
-        if name and name not in names:
+        if not name:
+            continue
+        name = _normalize_clsid(name)
+        if name not in names:
             names.append(name)
     return names
 
@@ -94,7 +106,7 @@ def _ole_ident(name: str):
         return name
     import pywintypes
 
-    return pywintypes.IID(name.strip())
+    return pywintypes.IID(_normalize_clsid(name))
 
 
 def _clsids_from_typelib(exe: str) -> list[str]:
@@ -196,7 +208,7 @@ def _mach3_exe_running() -> str | None:
 
 
 def _ensure_hkcu_ole(exe_path: str | None, clsid: str = _MACH3_CLSID) -> None:
-    """Write per-user Mach4.Document keys if this install never registered a ProgID."""
+    """Write per-user Mach3.Automation / Mach4.Document keys if OLE was never registered."""
     try:
         import winreg
     except ImportError:
@@ -206,12 +218,94 @@ def _ensure_hkcu_ole(exe_path: str | None, clsid: str = _MACH3_CLSID) -> None:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, path) as key:
             winreg.SetValueEx(key, "", 0, winreg.REG_SZ, value)
 
-    _set(r"Software\Classes\Mach4.Document", "Mach4.Document")
-    _set(r"Software\Classes\Mach4.Document\CLSID", clsid)
-    _set(rf"Software\Classes\CLSID\{clsid}", "Mach4 Document")
-    _set(rf"Software\Classes\CLSID\{clsid}\ProgID", "Mach4.Document")
+    for progid in ("Mach3.Automation", "Mach4.Document"):
+        _set(rf"Software\Classes\{progid}", progid)
+        _set(rf"Software\Classes\{progid}\CLSID", clsid)
+    _set(rf"Software\Classes\CLSID\{clsid}", "Mach3 Automation")
+    _set(rf"Software\Classes\CLSID\{clsid}\ProgID", "Mach3.Automation")
     if exe_path and os.path.isfile(exe_path):
         _set(rf"Software\Classes\CLSID\{clsid}\LocalServer32", f'"{exe_path}"')
+
+
+def _looks_like_mach3_rot_name(display: str) -> bool:
+    text = display.lower()
+    return any(
+        token in text
+        for token in (
+            "mach3",
+            "mach4",
+            "mach3.automation",
+            "mach4.document",
+            "mach3.document",
+            "ca7992b2",
+        )
+    )
+
+
+def _object_looks_like_mach3(obj: Any) -> bool:
+    return any(
+        hasattr(obj, name)
+        for name in ("GetScriptDispatch", "GetDRO", "JogOn", "DoOEMButton")
+    )
+
+
+def _script_from_document(mach: Any) -> Any:
+    if hasattr(mach, "GetScriptDispatch"):
+        try:
+            script = mach.GetScriptDispatch()
+            if script is not None:
+                return script
+        except Exception:
+            pass
+    if hasattr(mach, "GetDRO"):
+        return mach
+    raise RuntimeError("COM object has no GetScriptDispatch or GetDRO")
+
+
+def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
+    """Bind the running Mach3 without a registered ProgID."""
+    import pythoncom
+
+    try:
+        rot = pythoncom.GetRunningObjectTable()
+        enum = rot.EnumRunning()
+        ctx = pythoncom.CreateBindCtx(0)
+    except Exception as exc:
+        print(f"Mach3 ROT unavailable ({exc})", flush=True)
+        return None
+    entries: list[tuple[str, Any]] = []
+    while True:
+        try:
+            mons = enum.Next(1)
+        except Exception:
+            break
+        if not mons:
+            break
+        mon = mons[0]
+        try:
+            display = str(mon.GetDisplayName(ctx, None) or "")
+        except Exception:
+            display = ""
+        entries.append((display, mon))
+        print(f"Mach3 ROT entry: {display!r}", flush=True)
+    ordered = [item for item in entries if _looks_like_mach3_rot_name(item[0])]
+    ordered.extend(item for item in entries if not _looks_like_mach3_rot_name(item[0]))
+    for display, mon in ordered:
+        try:
+            unk = rot.GetObject(mon)
+            try:
+                import pythoncom as _pythoncom
+
+                disp = unk.QueryInterface(_pythoncom.IID_IDispatch)
+            except Exception:
+                disp = unk
+            obj = dispatch(disp)
+        except Exception:
+            continue
+        if _object_looks_like_mach3(obj):
+            print(f"Mach3 attached from ROT {display!r}", flush=True)
+            return obj
+    return None
 
 
 def _open_mach3_document(
@@ -220,6 +314,7 @@ def _open_mach3_document(
     names: list[str],
     *,
     process_running: bool = False,
+    create: bool = True,
 ) -> Any:
     last: BaseException | None = None
     not_in_rot: BaseException | None = None
@@ -232,6 +327,10 @@ def _open_mach3_document(
                 not_in_rot = exc
     if not_in_rot is not None and not process_running:
         raise not_in_rot
+    if not create:
+        if last is None:
+            raise RuntimeError("no Mach3 OLE names to try")
+        raise last
     for name in names:
         try:
             return dispatch(name)
@@ -251,9 +350,10 @@ def _attach_hint(
 ) -> str:
     if process_running:
         return (
-            "Mach3 is running but OLE attach failed. "
-            "If Mach3 was started as Administrator, right-click the pendant "
-            "shortcut and Run as administrator too (elevation must match)."
+            "Mach3 is running but is not in the OLE running-object table. "
+            "Close Mach3, right-click C:\\Mach3\\Mach3.exe and Run as administrator "
+            "once (or Mach3.exe /RegServer), then start Mach3 and the pendant "
+            "at the same elevation."
         )
     code = _hresult(exc)
     if code == _MK_E_UNAVAILABLE:
@@ -270,7 +370,7 @@ def _attach_hint(
 
 
 class ComMach3Client:
-    """Talk to a running Mach3 instance via OLE (Mach4.Document).
+    """Talk to a running Mach3 instance via OLE (Mach3.Automation / Mach4.Document).
 
     All COM calls run on one dedicated STA thread. FastAPI's thread pool must
     not touch the COM object directly.
@@ -352,13 +452,18 @@ class ComMach3Client:
                     raise
 
             try:
-                mach = _open_mach3_document(
-                    get_active,
-                    dispatch,
-                    names,
-                    process_running=process_running,
-                )
-                self._script = mach.GetScriptDispatch()
+                mach = None
+                if process_running:
+                    mach = _attach_from_rot(Dispatch)
+                if mach is None:
+                    mach = _open_mach3_document(
+                        get_active,
+                        dispatch,
+                        names,
+                        process_running=process_running,
+                        create=False,
+                    )
+                self._script = _script_from_document(mach)
             except Exception as exc:  # noqa: BLE001 — COM errors are opaque
                 hint = _attach_hint(
                     exc,

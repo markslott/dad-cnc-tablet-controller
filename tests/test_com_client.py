@@ -14,6 +14,7 @@ from src.mach3.com_client import (
 def test_ole_names_tries_known_clsid_first():
     names = _ole_names()
     assert names[0] == _MACH3_CLSID
+    assert names[1] == "Mach3.Automation"
     assert "Mach4.Document" in names
     assert "Mach3.Document" in names
 
@@ -74,7 +75,34 @@ def test_open_dispatches_when_mach3_is_running_but_not_in_rot():
     )
 
 
-def test_is_clsid_string():
+def test_open_skips_dispatch_when_create_false():
+    def get_active(_name: str):
+        raise OSError(_CO_E_CLASSSTRING, "Invalid class string")
+
+    def dispatch(_name: str):
+        raise AssertionError("must not Dispatch unregistered ProgIDs")
+
+    with pytest.raises(OSError) as excinfo:
+        _open_mach3_document(
+            get_active, dispatch, _ole_names(), process_running=True, create=False
+        )
+    assert excinfo.value.args[0] == _CO_E_CLASSSTRING
+
+
+def test_looks_like_mach3_rot_name():
+    from src.mach3.com_client import _looks_like_mach3_rot_name, _object_looks_like_mach3
+
+    assert _looks_like_mach3_rot_name("Mach3.Automation") is True
+    assert _looks_like_mach3_rot_name("Mach4.Document") is True
+    assert _looks_like_mach3_rot_name("{CA7992B2-2653-4342-8061-D7D385C07809}") is True
+    assert _looks_like_mach3_rot_name("Excel.Application") is False
+
+    class _Fake:
+        def GetDRO(self, _axis: int) -> float:
+            return 0.0
+
+    assert _object_looks_like_mach3(_Fake()) is True
+    assert _object_looks_like_mach3(object()) is False
     assert _is_clsid_string(_MACH3_CLSID) is True
     assert _is_clsid_string("Mach4.Document") is False
 
@@ -95,4 +123,4 @@ def test_attach_hint_mach3_not_running():
 def test_attach_hint_when_process_running_but_ole_blocked():
     exc = OSError(_MK_E_UNAVAILABLE, "Operation unavailable")
     hint = _attach_hint(exc, bits=64, clsid=_MACH3_CLSID, process_running=True)
-    assert "Administrator" in hint
+    assert "running-object table" in hint
