@@ -89,6 +89,7 @@ class HoldingRegisters:
         self.values = [0] * size
         self.lock = threading.Lock()
         self.status_written_at: float = 0.0
+        self.last_poll_at: float = 0.0
 
     def get(self, addr: int) -> int:
         with self.lock:
@@ -111,8 +112,17 @@ class HoldingRegisters:
             if touches_status(addr, len(values)):
                 self.status_written_at = time.monotonic()
 
+    def note_poll(self) -> None:
+        """Mach3 read (Input-Holding). Do not call this from our own get()."""
+        with self.lock:
+            first = self.last_poll_at <= 0
+            self.last_poll_at = time.monotonic()
+        if first:
+            print("Mach3 is polling Modbus.", flush=True)
+
     def connected(self, timeout_s: float = CONNECTED_TIMEOUT_S) -> bool:
         with self.lock:
-            if self.status_written_at <= 0:
+            seen = max(self.status_written_at, self.last_poll_at)
+            if seen <= 0:
                 return False
-            return (time.monotonic() - self.status_written_at) <= timeout_s
+            return (time.monotonic() - seen) <= timeout_s

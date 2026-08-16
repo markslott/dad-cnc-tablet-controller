@@ -20,7 +20,7 @@ class Settings:
     watchdog_ms: int
     dro_hz: float
     modbus_host: str = "127.0.0.1"
-    modbus_port: int = 1502
+    modbus_port: int = 502
 
     @property
     def pin_required(self) -> bool:
@@ -41,5 +41,5 @@ def load_settings() -> Settings:
         watchdog_ms=_env_int("MACH3_WATCHDOG_MS", 200),
         dro_hz=float(os.environ.get("MACH3_DRO_HZ", "10")),
         modbus_host=os.environ.get("MACH3_MODBUS_HOST", "127.0.0.1").strip() or "127.0.0.1",
-        modbus_port=_env_int("MACH3_MODBUS_PORT", 1502),
+        modbus_port=_env_int("MACH3_MODBUS_PORT", 502),
     )

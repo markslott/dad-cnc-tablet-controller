@@ -28,6 +28,16 @@ def _ready(client: ModbusMach3Client, x: float = 1.25, y: float = -0.5, z: float
     client._registers.set(HR_IN_CYCLE, 0)
 
 
+def test_modbus_read_marks_connected():
+    client = ModbusMach3Client(start_server=False)
+    assert client.get_status().connected is False
+    client._registers.note_poll()
+    status = client.get_status()
+    assert status.connected is True
+    assert status.can_jog is False
+    client.close()
+
+
 def test_disconnected_until_status_write():
     client = ModbusMach3Client(start_server=False)
     status = client.get_status()

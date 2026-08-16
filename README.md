@@ -22,7 +22,7 @@ Tablet browser  --Wi-Fi-->  Python server on Mach3 PC  --Modbus TCP-->  Mach3 (m
 
 Mach3 does not speak HTTP. The mill’s “IP address” is the Windows PC. The tablet never talks to Mach3 directly.
 
-Mach3’s Ethernet path is **Modbus TCP**, and Mach3 is the **master**: it polls our Python process, which is a Modbus **slave** on `127.0.0.1:1502`. Brains map those registers to DRO, jog, Stop, and Reset.
+Mach3’s Ethernet path is **Modbus TCP**, and Mach3 is the **master**: it polls our Python process, which is a Modbus **slave** on `127.0.0.1:502` (Mach3 has no port box; 502 is fixed). Brains map those registers to DRO, jog, Stop, and Reset.
 
 `MACH3_BACKEND=mock` simulates the machine so you can develop the UI on a Mac. `MACH3_BACKEND=modbus` is the shop default (`run.bat`). `MACH3_BACKEND=com` is the old OLE path and is not required.
 
@@ -82,10 +82,12 @@ run.bat
 
 1. Config → Ports and Pins: tick **Modbus Input/Output**, **Modbus Plugin Supported**, and **TCP Modbus Support**. Restart Mach3.
 2. Function Cfg’s → Setup TCP Modbus:
-   - IP `127.0.0.1`, port `1502`, slave `1`
-   - Cfg #0: **Input-Holding**, 16 registers, address `0`, refresh ~50 ms (Mach3 **reads** jog/Stop/Reset/FRO)
-   - Cfg #1: **Output-Holding**, 16 registers, address `100`, refresh ~50 ms (Mach3 **writes** DRO/LEDs)
-   - TCP Modbus Run
+   - Master address `127.0.0.1` (no port box; Mach3 always uses **502**)
+   - Slave `1` if that column exists
+   - Cfg #0: **Input-Holding**, 16 registers, local `0`, modbus `0`, refresh ~50 ms (Mach3 **reads** jog/Stop/Reset/FRO)
+   - Cfg #1: **Output-Holding**, 16 registers, local `0`, modbus `100`, refresh ~50 ms (Mach3 **writes** DRO/LEDs)
+   - Test (pendant must already be listening on 502), then TCP Modbus Run
+   - If Windows refuses port 502, right-click **Mach3 Pendant** → Run as administrator
 3. Start the pendant once so the slave is listening, then use the Modbus Test page if Mach3 has one, and confirm Cfg #0 / Cfg #1 are not in error.
 
 Register map (16-bit; DRO is a signed 32-bit value × 10000, high word first):
@@ -148,7 +150,7 @@ If DRO works but jog/FRO does not, the Brain terminations may not match this scr
 | `MACH3_HOST` | `0.0.0.0` | HTTP bind address |
 | `MACH3_PORT` | `8080` | HTTP port |
 | `MACH3_MODBUS_HOST` | `127.0.0.1` | Modbus slave bind address |
-| `MACH3_MODBUS_PORT` | `1502` | Modbus slave port (502 needs Administrator) |
+| `MACH3_MODBUS_PORT` | `502` | Modbus slave port (Mach3 has no port box; 502 may need Run as administrator) |
 | `MACH3_PIN` | unset | Optional shop PIN |
 | `MACH3_WATCHDOG_MS` | `200` | Jog-off if heartbeats stop |
 | `MACH3_DRO_HZ` | `10` | DRO WebSocket rate |
@@ -162,9 +164,9 @@ If DRO works but jog/FRO does not, the Brain terminations may not match this scr
 
 ## Troubleshooting
 
-- **waiting for Mach3 TCP Modbus** — the pendant server is up; Mach3 is not polling yet. Enable TCP Modbus Run, confirm IP `127.0.0.1` port `1502`, and that the pendant window is still open.
+- **waiting for Mach3 TCP Modbus** — the pendant server is up; Mach3 is not polling yet. Enable TCP Modbus Run, Master address `127.0.0.1`, and that the pendant is listening on port 502. If listen failed, Run as administrator.
 - **DRO stays at zero** — Cfg #1 Output-Holding / status Brain is not writing registers 100–105.
 - **Jog does nothing** — Cfg #0 Input-Holding / command Brain is not reading registers 0–2, or the Brain is wired to the wrong screen buttons.
 - **Axis keeps jogging after the pendant dies** — add the Cfg #0 comms-fail → Stop lobe.
-- **Tablet cannot connect** — same LAN, Windows firewall allow port 8080 inbound, PC IP has not changed. Modbus stays on localhost; do not open 1502 on the LAN.
+- **Tablet cannot connect** — same LAN, Windows firewall allow port 8080 inbound, PC IP has not changed. Modbus stays on localhost; do not open 502 on the LAN.
 - **Jog feels laggy or watchdog false-trips** — raise `MACH3_WATCHDOG_MS` slightly; keep press-and-hold jogging (never tap-to-start continuous jog).

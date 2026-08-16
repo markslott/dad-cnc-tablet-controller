@@ -42,7 +42,7 @@ class ModbusMach3Client:
     def __init__(
         self,
         host: str = "127.0.0.1",
-        port: int = 1502,
+        port: int = 502,
         *,
         registers: HoldingRegisters | None = None,
         start_server: bool = True,
@@ -86,7 +86,12 @@ class ModbusMach3Client:
             try:
                 StartTcpServer(context=context, address=(self._host, self._port))
             except Exception as exc:  # noqa: BLE001
-                self._server_error = f"Modbus TCP listen failed on {self._host}:{self._port} ({exc})"
+                hint = ""
+                if self._port == 502:
+                    hint = " Port 502 is what Mach3 uses; run this window as Administrator if Windows blocks it."
+                self._server_error = (
+                    f"Modbus TCP listen failed on {self._host}:{self._port} ({exc}).{hint}"
+                )
 
         self._thread = threading.Thread(target=_serve, name="mach3-modbus", daemon=True)
         self._thread.start()
@@ -231,7 +236,9 @@ class _SharedHoldingBlock:
         return 0 <= address and (address + count) <= self._registers.size
 
     def getValues(self, address: int, count: int = 1) -> list[int]:
-        return self._registers.get_range(address, count)
+        values = self._registers.get_range(address, count)
+        self._registers.note_poll()
+        return values
 
     def setValues(self, address: int, values: list[int] | int) -> None:
         if not isinstance(values, list):

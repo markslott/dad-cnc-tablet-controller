@@ -25,7 +25,7 @@ def create_client(
         from src.mach3.modbus_client import ModbusMach3Client
 
         host = modbus_host or os.environ.get("MACH3_MODBUS_HOST", "127.0.0.1")
-        port_raw = os.environ.get("MACH3_MODBUS_PORT", "1502")
+        port_raw = os.environ.get("MACH3_MODBUS_PORT", "502")
         port = modbus_port if modbus_port is not None else int(port_raw)
         return ModbusMach3Client(host=host, port=port, start_server=start_server)
     raise ValueError(f"unknown MACH3_BACKEND {name!r}; use 'mock', 'modbus', or 'com'")

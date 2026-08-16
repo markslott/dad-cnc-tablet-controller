@@ -94,11 +94,13 @@
     document.body.classList.toggle("not-ready", !canJog);
 
     if (!s.connected) {
-      els.ready.textContent = "Mach3 lost";
+      els.ready.textContent = "Waiting for Mach3";
       els.ready.className = "pill pill-down";
+      els.ready.title = s.error || "Mach3 is not polling Modbus 127.0.0.1:502";
     } else if (s.estop) {
       els.ready.textContent = "E-STOP";
       els.ready.className = "pill pill-down";
+      els.ready.title = "";
     } else if (s.stopped || !s.reset_ok) {
       els.ready.textContent = "Reset needed";
       els.ready.className = "pill pill-warn";
