@@ -273,7 +273,7 @@ def _script_from_document(mach: Any) -> Any:
     raise RuntimeError("COM object has no GetScriptDispatch or GetDRO")
 
 
-def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
+def _attach_from_rot(dispatch: Callable[[Any], Any], *, quiet: bool = False) -> Any | None:
     """Bind the running Mach3 without a registered ProgID."""
     import pythoncom
 
@@ -282,7 +282,8 @@ def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
         enum = rot.EnumRunning()
         ctx = pythoncom.CreateBindCtx(0)
     except Exception as exc:
-        print(f"Mach3 ROT unavailable ({exc})", flush=True)
+        if not quiet:
+            print(f"Mach3 ROT unavailable ({exc})", flush=True)
         return None
     entries: list[tuple[str, Any]] = []
     while True:
@@ -298,9 +299,10 @@ def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
         except Exception:
             display = ""
         entries.append((display, mon))
-    print(f"Mach3 ROT: {len(entries)} running object(s)", flush=True)
-    for display, _mon in entries:
-        print(f"Mach3 ROT entry: {display!r}", flush=True)
+    if not quiet:
+        print(f"Mach3 ROT: {len(entries)} running object(s)", flush=True)
+        for display, _mon in entries:
+            print(f"Mach3 ROT entry: {display!r}", flush=True)
     ordered = [item for item in entries if _looks_like_mach3_rot_name(item[0])]
     ordered.extend(item for item in entries if not _looks_like_mach3_rot_name(item[0]))
     for display, mon in ordered:
@@ -314,9 +316,11 @@ def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
             if _object_looks_like_mach3(obj):
                 print(f"Mach3 attached from ROT {display!r}", flush=True)
                 return obj
-            print(f"Mach3 ROT skip {display!r}: not a Mach3 script object", flush=True)
+            if not quiet:
+                print(f"Mach3 ROT skip {display!r}: not a Mach3 script object", flush=True)
         except Exception as exc:
-            print(f"Mach3 ROT skip {display!r}: {exc}", flush=True)
+            if not quiet:
+                print(f"Mach3 ROT skip {display!r}: {exc}", flush=True)
             continue
     return None
 
@@ -363,10 +367,11 @@ def _attach_hint(
 ) -> str:
     if process_running:
         return (
-            "Mach3 is running but is not in the OLE running-object table. "
-            "Close Mach3, right-click C:\\Mach3\\Mach3.exe and Run as administrator "
-            "once (or Mach3.exe /RegServer), then start Mach3 and the pendant "
-            "at the same elevation."
+            "Mach3 is running but has not published OLE (Operation unavailable). "
+            "Leave this pendant window open, exit Mach3 completely, start Mach3 "
+            "again, and wait — attach retries every second. If it still fails, "
+            "run C:\\Mach3\\Mach3.exe once as Administrator (or Mach3.exe /RegServer), "
+            "then start Mach3 and this window at the same elevation."
         )
     code = _hresult(exc)
     if code == _MK_E_UNAVAILABLE:
@@ -390,112 +395,61 @@ class ComMach3Client:
     """
 
     def __init__(self, connect_timeout_s: float = 10.0) -> None:
+        del connect_timeout_s
         self._jobs: queue.Queue = queue.Queue()
-        self._ready = threading.Event()
-        self._connect_error: str | None = None
+        self._lock = threading.Lock()
         self._script = None
+        self._attach_error: str | None = "waiting for Mach3 OLE"
         self._closed = False
         self._jog_rate = 50.0
         self._jog_mode = "cont"
         self._step_size = 0.01
         self._thread = threading.Thread(target=self._com_loop, name="mach3-com", daemon=True)
         self._thread.start()
-        if not self._ready.wait(timeout=connect_timeout_s):
-            raise TimeoutError("timed out attaching to Mach3 COM")
-        if self._connect_error:
-            raise RuntimeError(self._connect_error)
 
     def _com_loop(self) -> None:
         try:
             import pythoncom
             from win32com.client import Dispatch
         except ImportError:
-            self._connect_error = (
-                "pywin32 is required for MACH3_BACKEND=com. "
-                "Install it on the Windows Mach3 PC: pip install pywin32"
-            )
-            self._ready.set()
+            with self._lock:
+                self._attach_error = (
+                    "pywin32 is required for MACH3_BACKEND=com. "
+                    "Install it on the Windows Mach3 PC: pip install pywin32"
+                )
             return
 
         pythoncom.CoInitialize()
+        logged_wait = False
         try:
-            running = _mach3_exe_running()
-            exe = running if running and os.path.isfile(running) else _mach3_exe_on_disk()
-            discovered: list[str] = []
-            if exe and os.path.isfile(exe):
-                discovered.extend(_clsids_from_typelib(exe))
-                discovered.extend(_clsids_from_mach3_local_server(exe))
-            for progid in _MACH3_PROGIDS:
-                found = _registry_clsid(progid)
-                if found:
-                    discovered.append(found)
-            unique_discovered: list[str] = []
-            for item in discovered:
-                if item and item not in unique_discovered:
-                    unique_discovered.append(item)
-            if exe:
-                _ensure_hkcu_ole(exe, unique_discovered[0] if unique_discovered else _MACH3_CLSID)
-            names = _ole_names(*unique_discovered)
-            process_running = running is not None
-            print(
-                f"Mach3 OLE: Python {struct.calcsize('P') * 8}-bit, "
-                f"Mach3 running={process_running}, CLSIDs={names}",
-                flush=True,
-            )
-            errors: list[str] = []
-
-            def get_active(name: str):
-                try:
-                    obj = pythoncom.GetActiveObject(_ole_ident(name))
-                    return Dispatch(obj)
-                except Exception as exc:
-                    errors.append(f"GetActiveObject({name}): {exc}")
-                    raise
-
-            def dispatch(name: str):
-                try:
-                    ident = _ole_ident(name)
-                    if _is_clsid_string(name):
-                        obj = pythoncom.CoCreateInstance(
-                            ident,
-                            None,
-                            pythoncom.CLSCTX_LOCAL_SERVER,
-                            pythoncom.IID_IDispatch,
-                        )
-                        return Dispatch(obj)
-                    return Dispatch(name)
-                except Exception as exc:
-                    errors.append(f"Dispatch({name}): {exc}")
-                    raise
-
-            try:
-                mach = _attach_from_rot(Dispatch)
-                if mach is None:
-                    mach = _open_mach3_document(
-                        get_active,
-                        dispatch,
-                        names,
-                        process_running=process_running,
-                        create=False,
+            while not self._closed:
+                with self._lock:
+                    attached = self._script is not None
+                if not attached:
+                    error = self._attempt_attach(
+                        pythoncom, Dispatch, verbose=not logged_wait
                     )
-                self._script = _script_from_document(mach)
-            except Exception as exc:  # noqa: BLE001 — COM errors are opaque
-                hint = _attach_hint(
-                    exc,
-                    bits=struct.calcsize("P") * 8,
-                    clsid=unique_discovered[0] if unique_discovered else None,
-                    process_running=process_running,
-                )
-                detail = "; ".join(errors[-6:]) if errors else str(exc)
-                self._connect_error = f"could not attach to Mach3 ({detail}). {hint}"
-                self._ready.set()
-                return
-            self._ready.set()
-            while True:
-                job = self._jobs.get()
+                    if error:
+                        with self._lock:
+                            self._attach_error = error
+                        if not logged_wait:
+                            print(f"Mach3 OLE waiting: {error}", flush=True)
+                            logged_wait = True
+                    else:
+                        logged_wait = False
+                try:
+                    job = self._jobs.get(timeout=1.0)
+                except queue.Empty:
+                    continue
                 if job is None:
                     break
                 func, args, kwargs, result_q = job
+                with self._lock:
+                    ready = self._script is not None
+                    wait_error = self._attach_error
+                if not ready:
+                    result_q.put((False, RuntimeError(wait_error)))
+                    continue
                 try:
                     result_q.put((True, func(*args, **kwargs)))
                 except Exception as exc:  # noqa: BLE001
@@ -505,6 +459,85 @@ class ComMach3Client:
                 pythoncom.CoUninitialize()
             except Exception:
                 pass
+
+    def _attempt_attach(
+        self, pythoncom: Any, dispatch_cls: Any, *, verbose: bool = True
+    ) -> str | None:
+        running = _mach3_exe_running()
+        exe = running if running and os.path.isfile(running) else _mach3_exe_on_disk()
+        discovered: list[str] = []
+        if exe and os.path.isfile(exe):
+            discovered.extend(_clsids_from_typelib(exe))
+            discovered.extend(_clsids_from_mach3_local_server(exe))
+        for progid in _MACH3_PROGIDS:
+            found = _registry_clsid(progid)
+            if found:
+                discovered.append(found)
+        unique_discovered: list[str] = []
+        for item in discovered:
+            if item and item not in unique_discovered:
+                unique_discovered.append(item)
+        if exe:
+            _ensure_hkcu_ole(exe, unique_discovered[0] if unique_discovered else _MACH3_CLSID)
+        names = _ole_names(*unique_discovered)
+        process_running = running is not None
+        if verbose:
+            print(
+                f"Mach3 OLE: Python {struct.calcsize('P') * 8}-bit, "
+                f"Mach3 running={process_running}, CLSIDs={names}",
+                flush=True,
+            )
+        errors: list[str] = []
+
+        def get_active(name: str):
+            try:
+                obj = pythoncom.GetActiveObject(_ole_ident(name))
+                return dispatch_cls(obj)
+            except Exception as exc:
+                errors.append(f"GetActiveObject({name}): {exc}")
+                raise
+
+        def dispatch(name: str):
+            try:
+                ident = _ole_ident(name)
+                if _is_clsid_string(name):
+                    obj = pythoncom.CoCreateInstance(
+                        ident,
+                        None,
+                        pythoncom.CLSCTX_LOCAL_SERVER,
+                        pythoncom.IID_IDispatch,
+                    )
+                    return dispatch_cls(obj)
+                return dispatch_cls(name)
+            except Exception as exc:
+                errors.append(f"Dispatch({name}): {exc}")
+                raise
+
+        try:
+            mach = _attach_from_rot(dispatch_cls, quiet=not verbose)
+            if mach is None:
+                mach = _open_mach3_document(
+                    get_active,
+                    dispatch,
+                    names,
+                    process_running=process_running,
+                    create=False,
+                )
+            script = _script_from_document(mach)
+        except Exception as exc:  # noqa: BLE001 — COM errors are opaque
+            hint = _attach_hint(
+                exc,
+                bits=struct.calcsize("P") * 8,
+                clsid=unique_discovered[0] if unique_discovered else None,
+                process_running=process_running,
+            )
+            detail = "; ".join(errors[-6:]) if errors else str(exc)
+            return f"could not attach to Mach3 ({detail}). {hint}"
+        with self._lock:
+            self._script = script
+            self._attach_error = None
+        print("Mach3 OLE attached", flush=True)
+        return None
 
     def _call(self, func: Callable[..., T], *args, timeout_s: float = 2.0, **kwargs) -> T:
         if self._closed:
@@ -539,6 +572,23 @@ class ComMach3Client:
             return False
 
     def get_status(self) -> MachineStatus:
+        with self._lock:
+            if self._script is None:
+                return MachineStatus(
+                    dro=Dro(0.0, 0.0, 0.0),
+                    feed_override=100.0,
+                    jog_rate=self._jog_rate,
+                    jog_mode=self._jog_mode,
+                    step_size=self._step_size,
+                    estop=True,
+                    reset_ok=False,
+                    in_cycle=False,
+                    stopped=True,
+                    jogging=False,
+                    connected=False,
+                    backend="com",
+                    error=self._attach_error,
+                )
         error: str | None = None
         try:
             dro = self.get_dro()
@@ -600,6 +650,9 @@ class ComMach3Client:
             pass
 
     def jog_off_all(self) -> None:
+        with self._lock:
+            if self._script is None:
+                return
         for axis in (Axis.X, Axis.Y, Axis.Z):
             try:
                 self._script_call("JogOff", int(axis))

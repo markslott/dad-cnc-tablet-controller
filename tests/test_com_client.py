@@ -124,4 +124,5 @@ def test_attach_hint_mach3_not_running():
 def test_attach_hint_when_process_running_but_ole_blocked():
     exc = OSError(_MK_E_UNAVAILABLE, "Operation unavailable")
     hint = _attach_hint(exc, bits=64, clsid=_MACH3_CLSID, process_running=True)
-    assert "running-object table" in hint
+    assert "Operation unavailable" in hint
+    assert "Leave this pendant window open" in hint
