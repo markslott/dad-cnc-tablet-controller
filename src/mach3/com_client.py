@@ -27,6 +27,8 @@ T = TypeVar("T")
 
 _VALID_STEP_SIZES = (0.001, 0.01, 0.1, 1.0)
 _MACH3_PROGIDS = ("Mach4.Document", "Mach4.Document.1")
+# Many Mach3 installs never write the Mach4.Document ProgID. This CLSID is stable.
+_MACH3_CLSID = "{CA7992B2-2653-4342-8061-D7D385C07809}"
 _CO_E_CLASSSTRING = -2147221005  # invalid class string
 _REGDB_E_CLASSNOTREG = -2147221164
 _MK_E_UNAVAILABLE = -2147221021  # Mach3 not running
@@ -68,7 +70,7 @@ def _registry_clsid(progid: str) -> str | None:
 
 def _ole_names(clsid: str | None) -> list[str]:
     names: list[str] = []
-    for name in (*_MACH3_PROGIDS, clsid):
+    for name in (_MACH3_CLSID, clsid, *_MACH3_PROGIDS):
         if name and name not in names:
             names.append(name)
     return names
@@ -80,12 +82,23 @@ def _open_mach3_document(
     names: list[str],
 ) -> Any:
     last: BaseException | None = None
-    for opener in (get_active_object, dispatch):
-        for name in names:
-            try:
-                return opener(name)
-            except Exception as exc:  # noqa: BLE001 — try the next OLE name
-                last = exc
+    not_running: BaseException | None = None
+    for name in names:
+        try:
+            return get_active_object(name)
+        except Exception as exc:  # noqa: BLE001 — try the next OLE name
+            last = exc
+            if _hresult(exc) == _MK_E_UNAVAILABLE:
+                not_running = exc
+    # Mach3 is not in the running-object table. Do not Dispatch: that can
+    # launch a second Mach3 without the mill profile.
+    if not_running is not None:
+        raise not_running
+    for name in names:
+        try:
+            return dispatch(name)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
     if last is None:
         raise RuntimeError("no Mach3 OLE names to try")
     raise last
@@ -141,7 +154,7 @@ class ComMach3Client:
 
         pythoncom.CoInitialize()
         try:
-            clsid = _registry_clsid("Mach4.Document")
+            clsid = _registry_clsid("Mach4.Document") or _MACH3_CLSID
             try:
                 mach = _open_mach3_document(GetActiveObject, Dispatch, _ole_names(clsid))
                 self._script = mach.GetScriptDispatch()

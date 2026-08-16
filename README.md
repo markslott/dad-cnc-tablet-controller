@@ -110,7 +110,7 @@ If DRO works but jog/FRO does not, OEM codes may not match this Mach3 screenset.
 
 ## Troubleshooting
 
-- **could not attach to Mach3 / Invalid class string** — Mach3 is 32-bit. 64-bit Python cannot see the OLE name `Mach4.Document` (yes, Mach3 uses that name). The server looks up the 32-bit CLSID automatically. If it still fails: start Mach3 once as Administrator, or install **32-bit** Python 3.11 and recreate `.venv`. Mach3 must be running before this server.
+- **could not attach to Mach3 / Invalid class string** — many Mach3 installs never write the OLE name `Mach4.Document`. The server attaches with Mach3’s known document CLSID instead. Mach3 must already be running. If it still fails, start Mach3 once as Administrator, or install **32-bit** Python 3.11 and recreate `.venv`.
 - **pywin32 is required** — use `requirements-windows.txt` on the mill PC, not the Mac requirements file.
 - **Tablet cannot connect** — same LAN, Windows firewall allow port 8080 inbound, PC IP has not changed.
 - **Jog feels laggy or watchdog false-trips** — raise `MACH3_WATCHDOG_MS` slightly; keep press-and-hold jogging (never tap-to-start continuous jog).
