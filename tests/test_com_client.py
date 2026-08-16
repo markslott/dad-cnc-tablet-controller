@@ -5,15 +5,17 @@ from src.mach3.com_client import (
     _MACH3_CLSID,
     _MK_E_UNAVAILABLE,
     _attach_hint,
+    _is_clsid_string,
     _ole_names,
     _open_mach3_document,
 )
 
 
 def test_ole_names_tries_known_clsid_first():
-    names = _ole_names(None)
+    names = _ole_names()
     assert names[0] == _MACH3_CLSID
     assert "Mach4.Document" in names
+    assert "Mach3.Document" in names
 
 
 def test_ole_names_dedupes_registry_clsid():
@@ -30,7 +32,7 @@ def test_open_attaches_via_known_clsid():
     def dispatch(_name: str):
         raise AssertionError("Dispatch should not run after GetActiveObject succeeds")
 
-    assert _open_mach3_document(get_active, dispatch, _ole_names(None)) == "mach"
+    assert _open_mach3_document(get_active, dispatch, _ole_names()) == "mach"
 
 
 def test_open_falls_back_to_dispatch_when_progid_missing():
@@ -42,7 +44,7 @@ def test_open_falls_back_to_dispatch_when_progid_missing():
             return "mach"
         raise OSError("skip")
 
-    assert _open_mach3_document(get_active, dispatch, _ole_names(None)) == "mach"
+    assert _open_mach3_document(get_active, dispatch, _ole_names()) == "mach"
 
 
 def test_open_does_not_dispatch_if_mach3_not_running():
@@ -53,7 +55,7 @@ def test_open_does_not_dispatch_if_mach3_not_running():
         raise AssertionError("must not launch a second Mach3")
 
     with pytest.raises(OSError) as excinfo:
-        _open_mach3_document(get_active, dispatch, _ole_names(None), process_running=False)
+        _open_mach3_document(get_active, dispatch, _ole_names(), process_running=False)
     assert excinfo.value.args[0] == _MK_E_UNAVAILABLE
 
 
@@ -67,9 +69,14 @@ def test_open_dispatches_when_mach3_is_running_but_not_in_rot():
         raise OSError("skip")
 
     assert (
-        _open_mach3_document(get_active, dispatch, _ole_names(None), process_running=True)
+        _open_mach3_document(get_active, dispatch, _ole_names(), process_running=True)
         == "mach"
     )
+
+
+def test_is_clsid_string():
+    assert _is_clsid_string(_MACH3_CLSID) is True
+    assert _is_clsid_string("Mach4.Document") is False
 
 
 def test_attach_hint_invalid_class_without_clsid():

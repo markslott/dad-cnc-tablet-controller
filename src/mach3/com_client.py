@@ -28,8 +28,13 @@ from src.mach3.oem import (
 T = TypeVar("T")
 
 _VALID_STEP_SIZES = (0.001, 0.01, 0.1, 1.0)
-_MACH3_PROGIDS = ("Mach4.Document", "Mach4.Document.1")
-# Many Mach3 installs never write the Mach4.Document ProgID. This CLSID is stable.
+_MACH3_PROGIDS = (
+    "Mach4.Document",
+    "Mach4.Document.1",
+    "Mach3.Document",
+    "Mach3.Document.1",
+)
+# Common Mach3 document CLSID; real installs can differ — we also scan Mach3.exe.
 _MACH3_CLSID = "{CA7992B2-2653-4342-8061-D7D385C07809}"
 _CO_E_CLASSSTRING = -2147221005  # invalid class string
 _REGDB_E_CLASSNOTREG = -2147221164
@@ -70,12 +75,83 @@ def _registry_clsid(progid: str) -> str | None:
     return None
 
 
-def _ole_names(clsid: str | None) -> list[str]:
+def _is_clsid_string(name: str) -> bool:
+    text = name.strip()
+    return len(text) == 38 and text[0] == "{" and text[-1] == "}"
+
+
+def _ole_names(*extra: str | None) -> list[str]:
     names: list[str] = []
-    for name in (_MACH3_CLSID, clsid, *_MACH3_PROGIDS):
+    for name in (*extra, _MACH3_CLSID, *_MACH3_PROGIDS):
         if name and name not in names:
             names.append(name)
     return names
+
+
+def _ole_ident(name: str):
+    """ProgID stays a string; {CLSID} becomes a real IID (avoids Invalid class string)."""
+    if not _is_clsid_string(name):
+        return name
+    import pywintypes
+
+    return pywintypes.IID(name.strip())
+
+
+def _clsids_from_typelib(exe: str) -> list[str]:
+    import pythoncom
+
+    try:
+        tlb = pythoncom.LoadTypeLib(exe)
+    except Exception:
+        return []
+    found: list[str] = []
+    tkind = int(getattr(pythoncom, "TKIND_COCLASS", 5))
+    for i in range(tlb.GetTypeInfoCount()):
+        try:
+            info = tlb.GetTypeInfo(i)
+            attr = info.GetTypeAttr()
+            if int(attr.typekind) != tkind:
+                continue
+            guid = str(attr.guid)
+            if guid and guid not in found:
+                found.append(guid)
+        except Exception:
+            continue
+    return found
+
+
+def _clsids_from_mach3_local_server(exe: str | None) -> list[str]:
+    """CLSIDs whose LocalServer32 path is this Mach3.exe."""
+    if not exe:
+        return []
+    found: list[str] = []
+    try:
+        import winreg
+    except ImportError:
+        return found
+    access = int(winreg.KEY_READ)
+    try:
+        root = winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "CLSID", 0, access)
+    except OSError:
+        return found
+    i = 0
+    while True:
+        try:
+            clsid = winreg.EnumKey(root, i)
+        except OSError:
+            break
+        i += 1
+        try:
+            with winreg.OpenKey(root, clsid + r"\LocalServer32", 0, access) as key:
+                value, _ = winreg.QueryValueEx(key, "")
+        except OSError:
+            continue
+        if not isinstance(value, str) or "mach3.exe" not in value.lower():
+            continue
+        guid = clsid if clsid.startswith("{") else f"{{{clsid}}}"
+        if guid not in found:
+            found.append(guid)
+    return found
 
 
 def _mach3_exe_on_disk() -> str | None:
@@ -119,13 +195,12 @@ def _mach3_exe_running() -> str | None:
     return None
 
 
-def _ensure_hkcu_ole(exe_path: str | None) -> None:
-    """Write per-user Mach4.Document keys so 64-bit Python can CreateObject."""
+def _ensure_hkcu_ole(exe_path: str | None, clsid: str = _MACH3_CLSID) -> None:
+    """Write per-user Mach4.Document keys if this install never registered a ProgID."""
     try:
         import winreg
     except ImportError:
         return
-    clsid = _MACH3_CLSID
 
     def _set(path: str, value: str) -> None:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, path) as key:
@@ -183,11 +258,13 @@ def _attach_hint(
     code = _hresult(exc)
     if code == _MK_E_UNAVAILABLE:
         return "Start Mach3 first, then start this server."
-    if code in (_CO_E_CLASSSTRING, _REGDB_E_CLASSNOTREG) and not clsid:
+    if code in (_CO_E_CLASSSTRING, _REGDB_E_CLASSNOTREG):
         return (
             f"Mach3 OLE is not registered for this {bits}-bit Python. "
-            "Mach3 is 32-bit. Start Mach3 once as Administrator, "
-            "or install 32-bit Python 3.11 and recreate .venv."
+            "Start Mach3 once as Administrator so it writes its class, "
+            "then start the pendant with the same elevation. "
+            "Confirm python -c \"import struct; print(struct.calcsize('P')*8)\" "
+            "prints 32 (32-bit Python)."
         )
     return "Start Mach3 first, then start this server."
 
@@ -218,7 +295,7 @@ class ComMach3Client:
     def _com_loop(self) -> None:
         try:
             import pythoncom
-            from win32com.client import Dispatch, GetActiveObject
+            from win32com.client import Dispatch
         except ImportError:
             self._connect_error = (
                 "pywin32 is required for MACH3_BACKEND=com. "
@@ -231,15 +308,54 @@ class ComMach3Client:
         try:
             running = _mach3_exe_running()
             exe = running if running and os.path.isfile(running) else _mach3_exe_on_disk()
-            if exe:
-                _ensure_hkcu_ole(exe)
-            clsid = _registry_clsid("Mach4.Document") or _MACH3_CLSID
+            discovered: list[str] = []
+            if exe and os.path.isfile(exe):
+                discovered.extend(_clsids_from_typelib(exe))
+                discovered.extend(_clsids_from_mach3_local_server(exe))
+            for progid in _MACH3_PROGIDS:
+                found = _registry_clsid(progid)
+                if found:
+                    discovered.append(found)
+            unique_discovered: list[str] = []
+            for item in discovered:
+                if item and item not in unique_discovered:
+                    unique_discovered.append(item)
+            if exe and unique_discovered:
+                _ensure_hkcu_ole(exe, unique_discovered[0])
+            names = _ole_names(*unique_discovered)
+            print(f"Mach3 OLE attach names: {names}", flush=True)
             process_running = running is not None
+            errors: list[str] = []
+
+            def get_active(name: str):
+                try:
+                    obj = pythoncom.GetActiveObject(_ole_ident(name))
+                    return Dispatch(obj)
+                except Exception as exc:
+                    errors.append(f"GetActiveObject({name}): {exc}")
+                    raise
+
+            def dispatch(name: str):
+                try:
+                    ident = _ole_ident(name)
+                    if _is_clsid_string(name):
+                        obj = pythoncom.CoCreateInstance(
+                            ident,
+                            None,
+                            pythoncom.CLSCTX_LOCAL_SERVER,
+                            pythoncom.IID_IDispatch,
+                        )
+                        return Dispatch(obj)
+                    return Dispatch(name)
+                except Exception as exc:
+                    errors.append(f"Dispatch({name}): {exc}")
+                    raise
+
             try:
                 mach = _open_mach3_document(
-                    GetActiveObject,
-                    Dispatch,
-                    _ole_names(clsid),
+                    get_active,
+                    dispatch,
+                    names,
                     process_running=process_running,
                 )
                 self._script = mach.GetScriptDispatch()
@@ -247,10 +363,11 @@ class ComMach3Client:
                 hint = _attach_hint(
                     exc,
                     bits=struct.calcsize("P") * 8,
-                    clsid=clsid,
+                    clsid=unique_discovered[0] if unique_discovered else None,
                     process_running=process_running,
                 )
-                self._connect_error = f"could not attach to Mach3 ({exc}). {hint}"
+                detail = "; ".join(errors[-6:]) if errors else str(exc)
+                self._connect_error = f"could not attach to Mach3 ({detail}). {hint}"
                 self._ready.set()
                 return
             self._ready.set()

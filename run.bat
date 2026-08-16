@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-if not defined MACH3_BACKEND set MACH3_BACKEND=pump
+if not defined MACH3_BACKEND set MACH3_BACKEND=com
 if not defined MACH3_HOST set MACH3_HOST=0.0.0.0
 if not defined MACH3_PORT set MACH3_PORT=8080
 if not defined MACH3_MODBUS_HOST set MACH3_MODBUS_HOST=0.0.0.0
@@ -13,8 +13,7 @@ echo Mach3 Tablet Pendant
 echo   backend=%MACH3_BACKEND%
 echo   On this PC:  http://127.0.0.1:%MACH3_PORT%/
 echo   On tablet:   http://%COMPUTERNAME%:%MACH3_PORT%/
-echo   Mach3 talks through C:\Mach3\pendant-status.txt (macropump.m1s).
-echo   After Mach3 is up, C:\Mach3\pendant-pump.log should exist and update.
+echo   Mach3 talks through OLE (32-bit Python). Start Mach3 first.
 echo   Close this window to stop the pendant server.
 echo.
 
