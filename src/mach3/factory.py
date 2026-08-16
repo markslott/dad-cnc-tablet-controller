@@ -24,7 +24,7 @@ def create_client(
     if name == "modbus":
         from src.mach3.modbus_client import ModbusMach3Client
 
-        host = modbus_host or os.environ.get("MACH3_MODBUS_HOST", "127.0.0.1")
+        host = modbus_host or os.environ.get("MACH3_MODBUS_HOST", "0.0.0.0")
         port_raw = os.environ.get("MACH3_MODBUS_PORT", "502")
         port = modbus_port if modbus_port is not None else int(port_raw)
         return ModbusMach3Client(host=host, port=port, start_server=start_server)

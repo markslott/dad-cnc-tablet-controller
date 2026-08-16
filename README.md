@@ -22,7 +22,7 @@ Tablet browser  --Wi-Fi-->  Python server on Mach3 PC  --Modbus TCP-->  Mach3 (m
 
 Mach3 does not speak HTTP. The mill’s “IP address” is the Windows PC. The tablet never talks to Mach3 directly.
 
-Mach3’s Ethernet path is **Modbus TCP**, and Mach3 is the **master**: it polls our Python process, which is a Modbus **slave** on `127.0.0.1:502` (Mach3 has no port box; 502 is fixed). Brains map those registers to DRO, jog, Stop, and Reset.
+Mach3’s Ethernet path is **Modbus TCP**, and Mach3 is the **master**: it polls our Python process, which is a Modbus **slave** on this PC port **502** (Mach3 has no port box; 502 is fixed). Brains map those registers to DRO, jog, Stop, and Reset.
 
 `MACH3_BACKEND=mock` simulates the machine so you can develop the UI on a Mac. `MACH3_BACKEND=modbus` is the shop default (`run.bat`). `MACH3_BACKEND=com` is the old OLE path and is not required.
 
@@ -82,7 +82,7 @@ run.bat
 
 1. Config → Ports and Pins: tick **Modbus Input/Output**, **Modbus Plugin Supported**, and **TCP Modbus Support**. Restart Mach3.
 2. Function Cfg’s → Setup TCP Modbus:
-   - Master address `127.0.0.1` (no port box; Mach3 always uses **502**)
+   - Master address `127.0.0.1` (this PC). If Test says connection timeout, try the mill PC’s LAN IP instead — never the motion-controller IP. Mach3 always uses port **502**.
    - Slave `1` if that column exists
    - Cfg #0: **Input-Holding**, 16 registers, local `0`, modbus `0`, refresh ~50 ms (Mach3 **reads** jog/Stop/Reset/FRO)
    - Cfg #1: **Output-Holding**, 16 registers, local `0`, modbus `100`, refresh ~50 ms (Mach3 **writes** DRO/LEDs)
@@ -149,7 +149,7 @@ If DRO works but jog/FRO does not, the Brain terminations may not match this scr
 | `MACH3_BACKEND` | `mock` (`modbus` in `run.bat`) | `mock`, `modbus`, or `com` |
 | `MACH3_HOST` | `0.0.0.0` | HTTP bind address |
 | `MACH3_PORT` | `8080` | HTTP port |
-| `MACH3_MODBUS_HOST` | `127.0.0.1` | Modbus slave bind address |
+| `MACH3_MODBUS_HOST` | `0.0.0.0` | Modbus slave bind address (all interfaces so Mach3 can use 127.0.0.1 or the PC LAN IP) |
 | `MACH3_MODBUS_PORT` | `502` | Modbus slave port (Mach3 has no port box; 502 may need Run as administrator) |
 | `MACH3_PIN` | unset | Optional shop PIN |
 | `MACH3_WATCHDOG_MS` | `200` | Jog-off if heartbeats stop |
@@ -164,7 +164,7 @@ If DRO works but jog/FRO does not, the Brain terminations may not match this scr
 
 ## Troubleshooting
 
-- **waiting for Mach3 TCP Modbus** — the pendant server is up; Mach3 is not polling yet. Enable TCP Modbus Run, Master address `127.0.0.1`, and that the pendant is listening on port 502. If listen failed, Run as administrator.
+- **waiting for Mach3 TCP Modbus / connection timeout** — Mach3 is not reaching port 502. Master address must be `127.0.0.1` or this PC’s LAN IP (not the SmoothStepper/controller). Pendant must be running first; if listen failed, Run as administrator.
 - **DRO stays at zero** — Cfg #1 Output-Holding / status Brain is not writing registers 100–105.
 - **Jog does nothing** — Cfg #0 Input-Holding / command Brain is not reading registers 0–2, or the Brain is wired to the wrong screen buttons.
 - **Axis keeps jogging after the pendant dies** — add the Cfg #0 comms-fail → Stop lobe.

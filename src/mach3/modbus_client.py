@@ -42,7 +42,7 @@ class ModbusMach3Client:
 
     def __init__(
         self,
-        host: str = "127.0.0.1",
+        host: str = "0.0.0.0",
         port: int = 502,
         *,
         registers: HoldingRegisters | None = None,
@@ -121,7 +121,7 @@ class ModbusMach3Client:
                         return
                     print(
                         f"Modbus self-test OK on {probe}:{self._port}. "
-                        "In Mach3, Master address 127.0.0.1 then Test should succeed.",
+                        "In Mach3, Master address 127.0.0.1 (or this PC's LAN IP). Test should succeed.",
                         flush=True,
                     )
                     return

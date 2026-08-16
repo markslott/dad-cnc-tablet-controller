@@ -9,6 +9,7 @@
     pinError: document.getElementById("pin-error"),
     conn: document.getElementById("conn-pill"),
     ready: document.getElementById("ready-pill"),
+    machMsg: document.getElementById("mach-msg"),
     droX: document.getElementById("dro-x"),
     droY: document.getElementById("dro-y"),
     droZ: document.getElementById("dro-z"),
@@ -98,7 +99,9 @@
         || (s.error || "").toLowerCase().includes("self-test could not connect");
       els.ready.textContent = blocked ? "Modbus :502 blocked" : "Waiting for Mach3";
       els.ready.className = "pill pill-down";
-      els.ready.title = s.error || "Mach3 is not polling Modbus 127.0.0.1:502";
+      els.machMsg.hidden = false;
+      els.machMsg.textContent = s.error
+        || "Mach3 is not polling this PC on port 502. Start the pendant, Master address 127.0.0.1, Test, then TCP Modbus Run.";
     } else if (s.estop) {
       els.ready.textContent = "E-STOP";
       els.ready.className = "pill pill-down";
@@ -112,6 +115,10 @@
     } else {
       els.ready.textContent = (s.backend || "ok").toUpperCase() + " ready";
       els.ready.className = "pill pill-ok";
+    }
+    if (s.connected) {
+      els.machMsg.hidden = true;
+      els.machMsg.textContent = "";
     }
 
     if (s.jog_mode && s.jog_mode !== jogMode && activeJogs.size === 0) {

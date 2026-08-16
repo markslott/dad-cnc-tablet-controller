@@ -5,7 +5,7 @@ cd /d "%~dp0"
 if not defined MACH3_BACKEND set MACH3_BACKEND=modbus
 if not defined MACH3_HOST set MACH3_HOST=0.0.0.0
 if not defined MACH3_PORT set MACH3_PORT=8080
-if not defined MACH3_MODBUS_HOST set MACH3_MODBUS_HOST=127.0.0.1
+if not defined MACH3_MODBUS_HOST set MACH3_MODBUS_HOST=0.0.0.0
 if not defined MACH3_MODBUS_PORT set MACH3_MODBUS_PORT=502
 
 echo.
