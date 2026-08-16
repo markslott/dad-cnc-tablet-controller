@@ -8,18 +8,23 @@ if not exist "%~dp0assets\pendant.ico" (
   exit /b 1
 )
 
-set "SHORTCUT=%USERPROFILE%\Desktop\Mach3 Pendant.lnk"
 set "TARGET=%~dp0run.bat"
 set "WORKDIR=%~dp0."
 set "ICON=%~dp0assets\pendant.ico"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:SHORTCUT);" ^
+  "$desktop = [Environment]::GetFolderPath('DesktopDirectory');" ^
+  "if (-not $desktop) { $desktop = [Environment]::GetFolderPath('Desktop') };" ^
+  "if (-not $desktop) { throw 'Could not resolve Desktop folder' };" ^
+  "if (-not (Test-Path -LiteralPath $desktop)) { New-Item -ItemType Directory -Force -LiteralPath $desktop | Out-Null };" ^
+  "$path = Join-Path $desktop 'Mach3 Pendant.lnk';" ^
+  "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($path);" ^
   "$s.TargetPath = $env:TARGET;" ^
   "$s.WorkingDirectory = $env:WORKDIR;" ^
   "$s.IconLocation = $env:ICON;" ^
   "$s.Description = 'Mach3 Tablet Pendant';" ^
-  "$s.Save()"
+  "$s.Save();" ^
+  "Write-Host ('Created: ' + $path)"
 
 if errorlevel 1 (
   echo Failed to create desktop shortcut.
@@ -27,6 +32,5 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Created: %SHORTCUT%
 echo Start Mach3, then double-click that icon.
 pause
