@@ -53,7 +53,7 @@ pytest
 ## Shop PC (real Mach3)
 
 1. Give the Mach3 PC a **static DHCP reservation** (or a fixed LAN IP).
-2. Install Python 3.11+ on that PC.
+2. Install **32-bit** Python 3.11+ on that PC (Mach3 is 32-bit; 64-bit Python often cannot see its OLE class).
 3. Copy this folder onto the PC.
 4. In a command prompt from this folder:
 
@@ -110,7 +110,7 @@ If DRO works but jog/FRO does not, OEM codes may not match this Mach3 screenset.
 
 ## Troubleshooting
 
-- **could not attach to Mach3** — Mach3 is not running, or COM is not registered. Start Mach3, then the server. The OLE name is `Mach4.Document` even for Mach3.
+- **could not attach to Mach3 / Invalid class string** — Mach3 is 32-bit. 64-bit Python cannot see the OLE name `Mach4.Document` (yes, Mach3 uses that name). The server looks up the 32-bit CLSID automatically. If it still fails: start Mach3 once as Administrator, or install **32-bit** Python 3.11 and recreate `.venv`. Mach3 must be running before this server.
 - **pywin32 is required** — use `requirements-windows.txt` on the mill PC, not the Mac requirements file.
 - **Tablet cannot connect** — same LAN, Windows firewall allow port 8080 inbound, PC IP has not changed.
 - **Jog feels laggy or watchdog false-trips** — raise `MACH3_WATCHDOG_MS` slightly; keep press-and-hold jogging (never tap-to-start continuous jog).

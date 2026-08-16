@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import queue
+import struct
 import threading
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from src.mach3.client import Dro, MachineStatus
 from src.mach3.oem import (
@@ -25,6 +26,82 @@ from src.mach3.oem import (
 T = TypeVar("T")
 
 _VALID_STEP_SIZES = (0.001, 0.01, 0.1, 1.0)
+_MACH3_PROGIDS = ("Mach4.Document", "Mach4.Document.1")
+_CO_E_CLASSSTRING = -2147221005  # invalid class string
+_REGDB_E_CLASSNOTREG = -2147221164
+_MK_E_UNAVAILABLE = -2147221021  # Mach3 not running
+
+
+def _hresult(exc: BaseException) -> int | None:
+    if not exc.args or not isinstance(exc.args[0], int):
+        return None
+    code = exc.args[0]
+    if code > 0x7FFFFFFF:
+        return code - 0x100000000
+    return code
+
+
+def _registry_clsid(progid: str) -> str | None:
+    """Look up ProgID in both native and 32-bit (Wow6432Node) registry views."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    wow32 = int(getattr(winreg, "KEY_WOW64_32KEY", 0x0200))
+    read = int(winreg.KEY_READ)
+    queries = (
+        (winreg.HKEY_CLASSES_ROOT, f"{progid}\\CLSID", read),
+        (winreg.HKEY_LOCAL_MACHINE, f"SOFTWARE\\Classes\\{progid}\\CLSID", read | wow32),
+        (winreg.HKEY_CURRENT_USER, f"SOFTWARE\\Classes\\{progid}\\CLSID", read),
+        (winreg.HKEY_CLASSES_ROOT, f"Wow6432Node\\{progid}\\CLSID", read),
+    )
+    for hive, path, access in queries:
+        try:
+            with winreg.OpenKey(hive, path, 0, access) as key:
+                value, _ = winreg.QueryValueEx(key, "")
+        except OSError:
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _ole_names(clsid: str | None) -> list[str]:
+    names: list[str] = []
+    for name in (*_MACH3_PROGIDS, clsid):
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _open_mach3_document(
+    get_active_object: Callable[[str], Any],
+    dispatch: Callable[[str], Any],
+    names: list[str],
+) -> Any:
+    last: BaseException | None = None
+    for opener in (get_active_object, dispatch):
+        for name in names:
+            try:
+                return opener(name)
+            except Exception as exc:  # noqa: BLE001 — try the next OLE name
+                last = exc
+    if last is None:
+        raise RuntimeError("no Mach3 OLE names to try")
+    raise last
+
+
+def _attach_hint(exc: BaseException, *, bits: int, clsid: str | None) -> str:
+    code = _hresult(exc)
+    if code == _MK_E_UNAVAILABLE:
+        return "Start Mach3 first, then start this server."
+    if code in (_CO_E_CLASSSTRING, _REGDB_E_CLASSNOTREG) and not clsid:
+        return (
+            f"Mach3 OLE is not registered for this {bits}-bit Python. "
+            "Mach3 is 32-bit. Start Mach3 once as Administrator, "
+            "or install 32-bit Python 3.11 and recreate .venv."
+        )
+    return "Start Mach3 first, then start this server."
 
 
 class ComMach3Client:
@@ -53,7 +130,7 @@ class ComMach3Client:
     def _com_loop(self) -> None:
         try:
             import pythoncom
-            from win32com.client import GetActiveObject
+            from win32com.client import Dispatch, GetActiveObject
         except ImportError:
             self._connect_error = (
                 "pywin32 is required for MACH3_BACKEND=com. "
@@ -64,15 +141,13 @@ class ComMach3Client:
 
         pythoncom.CoInitialize()
         try:
+            clsid = _registry_clsid("Mach4.Document")
             try:
-                # ProgID is Mach4.Document even when talking to Mach3.
-                mach = GetActiveObject("Mach4.Document")
+                mach = _open_mach3_document(GetActiveObject, Dispatch, _ole_names(clsid))
                 self._script = mach.GetScriptDispatch()
             except Exception as exc:  # noqa: BLE001 — COM errors are opaque
-                self._connect_error = (
-                    f"could not attach to Mach3 ({exc}). "
-                    "Start Mach3 first, then start this server."
-                )
+                hint = _attach_hint(exc, bits=struct.calcsize("P") * 8, clsid=clsid)
+                self._connect_error = f"could not attach to Mach3 ({exc}). {hint}"
                 self._ready.set()
                 return
             self._ready.set()

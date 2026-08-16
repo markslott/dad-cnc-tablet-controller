@@ -32,6 +32,6 @@ if exist "%~dp0.venv\Scripts\python.exe" (
 if errorlevel 1 (
   echo.
   echo Server exited with an error.
-  echo Is Python installed, .venv created, and requirements-windows.txt applied?
+  echo Start Mach3 first, then this window. See the traceback above.
   pause
 )
