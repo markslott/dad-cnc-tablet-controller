@@ -14,14 +14,15 @@ from src.mach3.com_client import (
 def test_ole_names_tries_known_clsid_first():
     names = _ole_names()
     assert names[0] == _MACH3_CLSID
-    assert names[1] == "Mach3.Automation"
-    assert "Mach4.Document" in names
-    assert "Mach3.Document" in names
+    assert all(_is_clsid_string(name) for name in names)
+    assert "Mach3.Automation" not in names
+    assert "Mach4.Document" not in names
 
 
 def test_ole_names_dedupes_registry_clsid():
-    names = _ole_names(_MACH3_CLSID)
+    names = _ole_names(_MACH3_CLSID, "Mach3.Automation")
     assert names.count(_MACH3_CLSID) == 1
+    assert "Mach3.Automation" not in names
 
 
 def test_open_attaches_via_known_clsid():

@@ -90,12 +90,13 @@ def _normalize_clsid(name: str) -> str:
 
 
 def _ole_names(*extra: str | None) -> list[str]:
+    """CLSIDs only. ProgID strings are not registered on this PC and only spam Invalid class string."""
     names: list[str] = []
-    for name in (*extra, _MACH3_CLSID, *_MACH3_PROGIDS):
+    for name in (*extra, _MACH3_CLSID):
         if not name:
             continue
         name = _normalize_clsid(name)
-        if name not in names:
+        if _is_clsid_string(name) and name not in names:
             names.append(name)
     return names
 
@@ -242,22 +243,32 @@ def _looks_like_mach3_rot_name(display: str) -> bool:
     )
 
 
+def _com_attr(obj: Any, name: str) -> Any | None:
+    """getattr() default does not catch pywin32 com_error."""
+    try:
+        return getattr(obj, name)
+    except Exception:
+        return None
+
+
 def _object_looks_like_mach3(obj: Any) -> bool:
-    return any(
-        hasattr(obj, name)
-        for name in ("GetScriptDispatch", "GetDRO", "JogOn", "DoOEMButton")
-    )
+    try:
+        _script_from_document(obj)
+        return True
+    except Exception:
+        return False
 
 
 def _script_from_document(mach: Any) -> Any:
-    if hasattr(mach, "GetScriptDispatch"):
+    getter = _com_attr(mach, "GetScriptDispatch")
+    if callable(getter):
         try:
-            script = mach.GetScriptDispatch()
+            script = getter()
             if script is not None:
                 return script
         except Exception:
             pass
-    if hasattr(mach, "GetDRO"):
+    if _com_attr(mach, "GetDRO") is not None:
         return mach
     raise RuntimeError("COM object has no GetScriptDispatch or GetDRO")
 
@@ -287,6 +298,8 @@ def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
         except Exception:
             display = ""
         entries.append((display, mon))
+    print(f"Mach3 ROT: {len(entries)} running object(s)", flush=True)
+    for display, _mon in entries:
         print(f"Mach3 ROT entry: {display!r}", flush=True)
     ordered = [item for item in entries if _looks_like_mach3_rot_name(item[0])]
     ordered.extend(item for item in entries if not _looks_like_mach3_rot_name(item[0]))
@@ -294,17 +307,17 @@ def _attach_from_rot(dispatch: Callable[[Any], Any]) -> Any | None:
         try:
             unk = rot.GetObject(mon)
             try:
-                import pythoncom as _pythoncom
-
-                disp = unk.QueryInterface(_pythoncom.IID_IDispatch)
+                disp = unk.QueryInterface(pythoncom.IID_IDispatch)
             except Exception:
                 disp = unk
             obj = dispatch(disp)
-        except Exception:
+            if _object_looks_like_mach3(obj):
+                print(f"Mach3 attached from ROT {display!r}", flush=True)
+                return obj
+            print(f"Mach3 ROT skip {display!r}: not a Mach3 script object", flush=True)
+        except Exception as exc:
+            print(f"Mach3 ROT skip {display!r}: {exc}", flush=True)
             continue
-        if _object_looks_like_mach3(obj):
-            print(f"Mach3 attached from ROT {display!r}", flush=True)
-            return obj
     return None
 
 
@@ -420,11 +433,15 @@ class ComMach3Client:
             for item in discovered:
                 if item and item not in unique_discovered:
                     unique_discovered.append(item)
-            if exe and unique_discovered:
-                _ensure_hkcu_ole(exe, unique_discovered[0])
+            if exe:
+                _ensure_hkcu_ole(exe, unique_discovered[0] if unique_discovered else _MACH3_CLSID)
             names = _ole_names(*unique_discovered)
-            print(f"Mach3 OLE attach names: {names}", flush=True)
             process_running = running is not None
+            print(
+                f"Mach3 OLE: Python {struct.calcsize('P') * 8}-bit, "
+                f"Mach3 running={process_running}, CLSIDs={names}",
+                flush=True,
+            )
             errors: list[str] = []
 
             def get_active(name: str):
@@ -452,9 +469,7 @@ class ComMach3Client:
                     raise
 
             try:
-                mach = None
-                if process_running:
-                    mach = _attach_from_rot(Dispatch)
+                mach = _attach_from_rot(Dispatch)
                 if mach is None:
                     mach = _open_mach3_document(
                         get_active,
