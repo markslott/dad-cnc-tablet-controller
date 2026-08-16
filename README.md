@@ -174,6 +174,7 @@ If DRO works but jog/FRO does not on the optional Modbus path, the Brain termina
 
 ## Troubleshooting
 
+- **Run Macro Pump unchecks itself after restart** — either General Config was closed without **OK**, or Mach3 rejected `macropump.m1s` (syntax error / file not in this profile’s macros folder). Tick **Run Macro Pump** (third column), click **OK**, File → Exit, start Mach3 again. If it still clears, the script is not loading: run `install-macropump.bat` from the latest files, confirm the file is in `C:\Mach3\macros\<profile name from the lower-right corner>\`, then restart twice. A working pump updates `C:\Mach3\pendant-pump.log`.
 - **waiting for Mach3 macropump** — the pump is not writing `C:\Mach3\pendant-status.txt`. Run `install-macropump.bat` again, tick **Run Macro Pump**, restart Mach3. Open `C:\Mach3\pendant-pump.log`: missing means the script is not in this profile’s macros folder. Then start the pendant; console should print `Mach3 macropump is talking`.
 - **waiting for Mach3 TCP Modbus / connection timeout** — only if `MACH3_BACKEND=modbus`. Mach3 is not reaching port 502. Master address must be `127.0.0.1` or this PC’s LAN IP (not the SmoothStepper/controller). Pendant must be running first; if listen failed, Run as administrator.
 - **DRO stays at zero** — macropump is not posting, or (modbus) Cfg #1 / status Brain is not writing registers 100–105.
