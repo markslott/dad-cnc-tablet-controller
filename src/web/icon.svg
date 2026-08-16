@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Mach3 pendant">
+  <rect width="512" height="512" rx="96" fill="#141a22"/>
+  <rect x="56" y="72" width="400" height="120" rx="16" fill="#0b0f14"/>
+  <text x="256" y="155" text-anchor="middle" font-family="ui-monospace, monospace" font-size="72" fill="#ffb000">XYZ</text>
+  <circle cx="160" cy="340" r="70" fill="#c62828"/>
+  <circle cx="352" cy="340" r="70" fill="#f9a825"/>
+</svg>

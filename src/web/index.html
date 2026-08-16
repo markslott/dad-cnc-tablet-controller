@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Mach3 Pendant</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" href="/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="pin-overlay" class="overlay hidden" aria-hidden="true">
+      <form id="pin-form" class="pin-card">
+        <h1>Shop PIN</h1>
+        <p>Enter the PIN set on the Mach3 PC to use this pendant.</p>
+        <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="12" />
+        <button type="submit" class="btn btn-primary">Unlock</button>
+        <p id="pin-error" class="error hidden">Wrong PIN</p>
+      </form>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">Mach3 Pendant</div>
+      <div id="conn-pill" class="pill pill-down">Connecting</div>
+      <div id="ready-pill" class="pill pill-muted">—</div>
+    </header>
+
+    <section class="dro" aria-label="Digital readout">
+      <div class="dro-axis">
+        <span class="dro-label">X</span>
+        <span id="dro-x" class="dro-value">0.0000</span>
+      </div>
+      <div class="dro-axis">
+        <span class="dro-label">Y</span>
+        <span id="dro-y" class="dro-value">0.0000</span>
+      </div>
+      <div class="dro-axis">
+        <span class="dro-label">Z</span>
+        <span id="dro-z" class="dro-value">0.0000</span>
+      </div>
+    </section>
+
+    <main class="layout">
+      <section class="jog-block" aria-label="Jog">
+        <div class="xy-pad">
+          <button class="btn jog" data-axis="1" data-dir="0" aria-label="Y plus">Y+</button>
+          <button class="btn jog" data-axis="0" data-dir="1" aria-label="X minus">X−</button>
+          <button class="btn jog" data-axis="0" data-dir="0" aria-label="X plus">X+</button>
+          <button class="btn jog" data-axis="1" data-dir="1" aria-label="Y minus">Y−</button>
+        </div>
+        <div class="z-pad">
+          <button class="btn jog" data-axis="2" data-dir="0" aria-label="Z plus">Z+</button>
+          <button class="btn jog" data-axis="2" data-dir="1" aria-label="Z minus">Z−</button>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Overrides and mode">
+        <div class="e-row">
+          <button id="btn-stop" class="btn btn-stop" type="button">STOP</button>
+          <button id="btn-reset" class="btn btn-reset" type="button">RESET</button>
+        </div>
+
+        <div class="mode-row" role="group" aria-label="Jog mode">
+          <button id="mode-cont" class="btn toggle active" type="button">Cont</button>
+          <button id="mode-step" class="btn toggle" type="button">Step</button>
+        </div>
+
+        <div class="step-row" role="group" aria-label="Step size">
+          <button class="btn step-size active" data-size="0.001" type="button">.001</button>
+          <button class="btn step-size" data-size="0.01" type="button">.01</button>
+          <button class="btn step-size" data-size="0.1" type="button">.1</button>
+          <button class="btn step-size" data-size="1" type="button">1</button>
+        </div>
+
+        <label class="slider-label">
+          <span>Jog rate <strong id="jog-rate-val">50%</strong></span>
+          <input id="jog-rate" type="range" min="1" max="100" value="50" />
+        </label>
+
+        <label class="slider-label">
+          <span>Feed override <strong id="fro-val">100%</strong></span>
+          <input id="feed-override" type="range" min="0" max="200" value="100" />
+        </label>
+      </section>
+    </main>
+
+    <p id="hint" class="hint">
+      Physical E-stop on the machine is the real E-stop. Hold to jog in Cont; tap once in Step.
+    </p>
+
+    <script src="/pendant.js"></script>
+  </body>
+</html>
