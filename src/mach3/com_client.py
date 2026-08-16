@@ -516,10 +516,9 @@ class ComMach3Client:
         try:
             mach = _attach_from_rot(dispatch_cls, quiet=not verbose)
             if mach is None and process_running:
-                # Mach3 commonly exposes its automation server without adding
-                # an entry to the ROT. This is the connection method used by
-                # the official examples.
-                mach = dispatch("Mach4.Document")
+                # Activate the same server as Dispatch("Mach4.Document"), but
+                # bypass ProgID lookup because many Mach3 installs omit it.
+                mach = dispatch(names[0])
             if mach is None:
                 mach = _open_mach3_document(
                     get_active,
