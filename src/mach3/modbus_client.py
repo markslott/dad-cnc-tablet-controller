@@ -225,6 +225,11 @@ class ModbusMach3Client:
     def do_reset(self) -> None:
         self.jog_off_all()
         self._pulse(HR_RESET, 1)
+        print(
+            "Reset pulse set (Cfg #0 addr 4 = 1). "
+            "Mach3 needs a Brain: that register → Reset (OEM 1021).",
+            flush=True,
+        )
 
     def close(self) -> None:
         self._closed = True

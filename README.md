@@ -166,6 +166,7 @@ If DRO works but jog/FRO does not, the Brain terminations may not match this scr
 
 - **waiting for Mach3 TCP Modbus / connection timeout** — Mach3 is not reaching port 502. Master address must be `127.0.0.1` or this PC’s LAN IP (not the SmoothStepper/controller). Pendant must be running first; if listen failed, Run as administrator.
 - **DRO stays at zero** — Cfg #1 Output-Holding / status Brain is not writing registers 100–105.
+- **Reset needed / RESET does nothing** — TCP Modbus is working (Mach3 is polling). The tablet Reset button only pulses Cfg #0 address 4; Mach3 will not Reset until a Brain maps that to OEM 1021. The tablet stays on “Reset needed” until a status Brain writes the Reset LED (OEM 825) to Cfg #1 address 108. Watch the pendant console: a Reset click should print `Reset pulse set`.
 - **Jog does nothing** — Cfg #0 Input-Holding / command Brain is not reading registers 0–2, or the Brain is wired to the wrong screen buttons.
 - **Axis keeps jogging after the pendant dies** — add the Cfg #0 comms-fail → Stop lobe.
 - **Tablet cannot connect** — same LAN, Windows firewall allow port 8080 inbound, PC IP has not changed. Modbus stays on localhost; do not open 502 on the LAN.

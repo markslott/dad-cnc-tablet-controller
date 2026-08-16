@@ -9,6 +9,7 @@ from src.mach3.modbus_map import (
     HR_FRO_ACTUAL,
     HR_IN_CYCLE,
     HR_JOG,
+    HR_RESET,
     HR_RESET_OK,
     HR_STOP,
     JOG_POS,
@@ -85,6 +86,16 @@ def test_stop_pulse_clears():
     assert client._registers.get(HR_STOP) == 1
     time.sleep(0.12)
     assert client._registers.get(HR_STOP) == 0
+    client.close()
+
+
+def test_reset_pulse_sets_cfg0_addr_4():
+    client = ModbusMach3Client(start_server=False, pulse_s=0.05)
+    _ready(client)
+    client.do_reset()
+    assert client._registers.get(HR_RESET) == 1
+    time.sleep(0.12)
+    assert client._registers.get(HR_RESET) == 0
     client.close()
 
 

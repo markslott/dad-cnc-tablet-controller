@@ -105,18 +105,22 @@
     } else if (s.estop) {
       els.ready.textContent = "E-STOP";
       els.ready.className = "pill pill-down";
-      els.ready.title = "";
+      els.machMsg.hidden = false;
+      els.machMsg.textContent = "Mach3 reports E-stop. Clear it on the mill, then Reset.";
     } else if (s.stopped || !s.reset_ok) {
       els.ready.textContent = "Reset needed";
       els.ready.className = "pill pill-warn";
+      els.machMsg.hidden = false;
+      els.machMsg.textContent = s.error
+        || "RESET here only pulses Modbus Cfg #0 address 4. Mach3 will not Reset until a Brain maps that to the Reset button (OEM 1021), and Cfg #1 address 108 from the Reset LED.";
     } else if (s.in_cycle) {
       els.ready.textContent = "In cycle";
       els.ready.className = "pill pill-warn";
+      els.machMsg.hidden = true;
+      els.machMsg.textContent = "";
     } else {
       els.ready.textContent = (s.backend || "ok").toUpperCase() + " ready";
       els.ready.className = "pill pill-ok";
-    }
-    if (s.connected) {
       els.machMsg.hidden = true;
       els.machMsg.textContent = "";
     }
