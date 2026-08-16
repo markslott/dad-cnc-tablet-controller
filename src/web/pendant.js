@@ -94,7 +94,9 @@
     document.body.classList.toggle("not-ready", !canJog);
 
     if (!s.connected) {
-      els.ready.textContent = "Waiting for Mach3";
+      const blocked = (s.error || "").toLowerCase().includes("listen failed")
+        || (s.error || "").toLowerCase().includes("self-test could not connect");
+      els.ready.textContent = blocked ? "Modbus :502 blocked" : "Waiting for Mach3";
       els.ready.className = "pill pill-down";
       els.ready.title = s.error || "Mach3 is not polling Modbus 127.0.0.1:502";
     } else if (s.estop) {

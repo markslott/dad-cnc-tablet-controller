@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 from src.mach3.client import Dro, MachineStatus
 from src.mach3.modbus_map import (
@@ -83,6 +84,7 @@ class ModbusMach3Client:
         context = ModbusServerContext(slaves=store, single=True)
 
         def _serve() -> None:
+            print(f"Modbus listening on {self._host}:{self._port} (Mach3 Test uses this).", flush=True)
             try:
                 StartTcpServer(context=context, address=(self._host, self._port))
             except Exception as exc:  # noqa: BLE001
@@ -92,9 +94,47 @@ class ModbusMach3Client:
                 self._server_error = (
                     f"Modbus TCP listen failed on {self._host}:{self._port} ({exc}).{hint}"
                 )
+                print(self._server_error, flush=True)
 
         self._thread = threading.Thread(target=_serve, name="mach3-modbus", daemon=True)
         self._thread.start()
+        self._self_test()
+
+    def _self_test(self) -> None:
+        """Prove the port is reachable the same way Mach3 Test is."""
+        probe = "127.0.0.1" if self._host in ("0.0.0.0", "") else self._host
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if self._server_error:
+                return
+            try:
+                from pymodbus.client import ModbusTcpClient
+
+                client = ModbusTcpClient(probe, port=self._port, timeout=0.4)
+                try:
+                    if not client.connect():
+                        time.sleep(0.1)
+                        continue
+                    reply = client.read_holding_registers(0, 1, slave=1)
+                    if reply.isError():
+                        print(f"Modbus self-test: connected but read failed ({reply}).", flush=True)
+                        return
+                    print(
+                        f"Modbus self-test OK on {probe}:{self._port}. "
+                        "In Mach3, Master address 127.0.0.1 then Test should succeed.",
+                        flush=True,
+                    )
+                    return
+                finally:
+                    client.close()
+            except Exception:
+                time.sleep(0.1)
+        if not self._server_error:
+            self._server_error = (
+                f"Modbus self-test could not connect to {probe}:{self._port}. "
+                "Mach3 Test will fail. Run this window as Administrator."
+            )
+            print(self._server_error, flush=True)
 
     def get_dro(self) -> Dro:
         return self.get_status().dro
