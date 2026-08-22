@@ -31,6 +31,7 @@
       <div class="brand">Mach3 Pendant</div>
       <div id="conn-pill" class="pill pill-down">Connecting</div>
       <div id="ready-pill" class="pill pill-muted">—</div>
+      <button id="btn-setup" class="pill" type="button">Setup</button>
     </header>
     <p id="mach-msg" class="hint" hidden></p>
 
@@ -92,6 +93,21 @@
         </label>
       </section>
     </main>
+
+    <section id="setup-panel" class="setup hidden" hidden>
+      <p id="setup-ages" class="setup-ages">Cfg #0 poll: — · Cfg #1 write: —</p>
+      <p id="setup-decoded" class="setup-decoded">DRO — · E-stop — · Reset OK — · Cycle —</p>
+      <div class="setup-grids">
+        <div>
+          <h2>Cfg #0 Mach3 reads (local = slave)</h2>
+          <div id="setup-cfg0" class="setup-table"></div>
+        </div>
+        <div>
+          <h2>Cfg #1 Mach3 writes (local 0 = slave 100)</h2>
+          <div id="setup-cfg1" class="setup-table"></div>
+        </div>
+      </div>
+    </section>
 
     <p id="hint" class="hint">
       Physical E-stop on the machine is the real E-stop. Hold to jog in Cont; tap once in Step.

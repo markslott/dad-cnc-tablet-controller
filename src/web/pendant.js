@@ -21,6 +21,12 @@
     jogRateVal: document.getElementById("jog-rate-val"),
     fro: document.getElementById("feed-override"),
     froVal: document.getElementById("fro-val"),
+    setupBtn: document.getElementById("btn-setup"),
+    setupPanel: document.getElementById("setup-panel"),
+    setupAges: document.getElementById("setup-ages"),
+    setupDecoded: document.getElementById("setup-decoded"),
+    setupCfg0: document.getElementById("setup-cfg0"),
+    setupCfg1: document.getElementById("setup-cfg1"),
   };
 
   let pin = sessionStorage.getItem(PIN_KEY) || "";
@@ -34,6 +40,8 @@
   let stepSize = 0.01;
   let activeJogs = new Map(); // key -> {axis, direction}
   let lastStatus = null;
+  let setupOpen = false;
+  let setupTimer = null;
 
   function fmt(n) {
     const v = Number(n);
@@ -145,6 +153,75 @@
     if (typeof s.feed_override === "number" && document.activeElement !== els.fro) {
       els.fro.value = String(Math.round(s.feed_override));
       els.froVal.textContent = `${Math.round(s.feed_override)}%`;
+    }
+  }
+
+  function ageLabel(seconds) {
+    if (seconds == null) return "never";
+    if (seconds < 1) return `${seconds.toFixed(2)}s ago`;
+    return `${seconds.toFixed(1)}s ago`;
+  }
+
+  function renderRows(el, rows) {
+    el.innerHTML = "";
+    (rows || []).forEach((row) => {
+      const div = document.createElement("div");
+      const on = Number(row.value) !== 0;
+      div.className = on ? "setup-row on" : "setup-row";
+      div.title = row.hint || "";
+      div.innerHTML =
+        `<span>L${row.local} s${row.slave}</span>` +
+        `<span>${row.name}</span>` +
+        `<span class="setup-val">${row.value}</span>`;
+      el.appendChild(div);
+    });
+  }
+
+  function applyDebug(d) {
+    if (!d || !d.available) {
+      els.setupAges.textContent = d
+        ? `Setup is for MACH3_BACKEND=modbus (now ${d.backend}).`
+        : "No debug data.";
+      els.setupDecoded.textContent = "";
+      els.setupCfg0.innerHTML = "";
+      els.setupCfg1.innerHTML = "";
+      return;
+    }
+    els.setupAges.textContent =
+      `Cfg #0 poll: ${ageLabel(d.poll_age_s)} · Cfg #1 write: ${ageLabel(d.status_write_age_s)}`;
+    const dec = d.decoded || {};
+    els.setupDecoded.textContent =
+      `DRO ${fmt(dec.x)}  ${fmt(dec.y)}  ${fmt(dec.z)} · ` +
+      `E-stop ${dec.estop ? "1" : "0"} · Reset OK ${dec.reset_ok ? "1" : "0"} · ` +
+      `Cycle ${dec.in_cycle ? "1" : "0"} · FRO ${dec.fro ?? "—"}`;
+    renderRows(els.setupCfg0, d.cfg0);
+    renderRows(els.setupCfg1, d.cfg1);
+  }
+
+  async function pollDebug() {
+    if (!setupOpen) return;
+    try {
+      applyDebug(await api("/api/debug", undefined, "GET"));
+    } catch (err) {
+      els.setupAges.textContent = String(err);
+    }
+  }
+
+  function setSetupOpen(on) {
+    setupOpen = on;
+    els.setupBtn.classList.toggle("active", on);
+    els.setupPanel.classList.toggle("hidden", !on);
+    els.setupPanel.hidden = !on;
+    if (on) {
+      location.hash = "setup";
+      pollDebug();
+      if (!setupTimer) setupTimer = setInterval(pollDebug, 250);
+    } else {
+      if (location.hash === "#setup") location.hash = "";
+      if (setupTimer) {
+        clearInterval(setupTimer);
+        setupTimer = null;
+      }
     }
   }
 
@@ -371,6 +448,9 @@
         console.warn(err);
       }
     });
+    els.setupBtn.addEventListener("click", () => {
+      setSetupOpen(!setupOpen);
+    });
 
     window.addEventListener("blur", () => {
       killLocalJogs();
@@ -434,6 +514,7 @@
       }
     }
     connectWs();
+    if (location.hash === "#setup") setSetupOpen(true);
   }
 
   if ("serviceWorker" in navigator) {

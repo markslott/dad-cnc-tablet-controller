@@ -132,7 +132,7 @@ If a button does nothing, open the screen designer (or Operator diagnostics) and
 
 #### Open the editor
 
-1. Start the pendant first, then Mach3, then **TCP Modbus Run**. Cfg #0 / #1 must not be in error.
+1. Start the pendant first, then Mach3, then **TCP Modbus Run**. Cfg #0 / #1 must not be in error. On the tablet, tap **Setup** (or open `/#setup`) to watch live Cfg #0 / Cfg #1 values while you wire functions.
 2. Operator → **Brain Control**.
 3. **New**. Name it `Pendant-Cmd`. Save under `C:\Mach3\Brains`.
 4. The editor is a chain: **input terminator** → optional **Compare / Formula** → **output terminator**. Right-click empty space (or use Add Function) for each piece, then click an output pin to an input pin to connect them.

@@ -1,7 +1,12 @@
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
+from src.mach3.modbus_client import ModbusMach3Client
+from src.mach3.modbus_map import HR_ESTOP, encode_dro
+from src.server.app import create_app
+from src.server.config import Settings
 from tests.conftest import make_app
 
 
@@ -79,6 +84,42 @@ def test_watchdog_stops_jog_without_heartbeat():
         assert mach3.get_status().jogging
         time.sleep(0.2)
         assert not mach3.get_status().jogging
+
+
+def test_debug_endpoint_empty_on_mock():
+    app, _ = make_app()
+    with TestClient(app) as client:
+        data = client.get("/api/debug").json()
+        assert data["available"] is False
+        assert data["backend"] == "mock"
+
+
+def test_debug_endpoint_shows_modbus_words():
+    mach3 = ModbusMach3Client(start_server=False)
+    xh, xl = encode_dro(1.5)
+    mach3._registers.set_range(100, [xh, xl, 0, 0, 0, 0, 80, 1, 0, 0])
+    mach3._registers.set(HR_ESTOP, 1)
+    mach3._registers.note_poll()
+    settings = Settings(
+        backend="modbus",
+        host="127.0.0.1",
+        port=8080,
+        pin=None,
+        watchdog_ms=200,
+        dro_hz=10,
+    )
+    app = create_app(mach3=mach3, settings=settings)
+    with TestClient(app) as client:
+        data = client.get("/api/debug").json()
+        assert data["available"] is True
+        assert data["cfg0"][9]["name"] == "Alive"
+        assert data["cfg0"][9]["value"] == 1
+        assert data["cfg1"][7]["slave"] == 107
+        assert data["cfg1"][7]["value"] == 1
+        assert data["decoded"]["estop"] is True
+        assert data["decoded"]["x"] == pytest.approx(1.5, abs=1e-4)
+        assert data["poll_age_s"] is not None
+    mach3.close()
 
 
 def test_pin_protects_commands():

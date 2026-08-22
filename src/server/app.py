@@ -163,6 +163,13 @@ def create_app(
         payload["watchdog_tripped"] = watchdog().trip_count
         return payload
 
+    @app.get("/api/debug")
+    async def api_debug():
+        snapshot = getattr(client(), "debug_snapshot", None)
+        if snapshot is None:
+            return {"available": False, "backend": settings.backend}
+        return await asyncio.to_thread(snapshot)
+
     @app.post("/api/heartbeat")
     async def api_heartbeat():
         watchdog().heartbeat()

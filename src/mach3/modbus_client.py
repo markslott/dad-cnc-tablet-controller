@@ -35,6 +35,30 @@ from src.mach3.modbus_map import (
 from src.mach3.oem import AXIS_NAMES, JOG_DIR_NEG, JOG_DIR_POS, Axis
 
 _VALID_STEP_SIZES = (0.001, 0.01, 0.1, 1.0)
+_CFG0_ROWS = (
+    (0, "Jog X", "0 off, 1 +, 2 −"),
+    (1, "Jog Y", "0 off, 1 +, 2 −"),
+    (2, "Jog Z", "0 off, 1 +, 2 −"),
+    (3, "Stop pulse", "1 = press OEM 1003"),
+    (4, "Reset pulse", "1 = press OEM 1021"),
+    (5, "FRO command", "0–200 percent"),
+    (6, "Jog mode", "0 cont, 1 step"),
+    (7, "Step size", "× 1000 (10 = 0.01)"),
+    (8, "Step pulse", "8/12 X±, 9/13 Y±, 10/14 Z±"),
+    (9, "Alive", "1 while pendant is up"),
+)
+_CFG1_ROWS = (
+    (0, 100, "X high", "work X × 10000, high word"),
+    (1, 101, "X low", "work X × 10000, low word"),
+    (2, 102, "Y high", "work Y × 10000, high word"),
+    (3, 103, "Y low", "work Y × 10000, low word"),
+    (4, 104, "Z high", "work Z × 10000, high word"),
+    (5, 105, "Z low", "work Z × 10000, low word"),
+    (6, 106, "FRO actual", "OEM DRO 818"),
+    (7, 107, "E-stop LED", "OEM LED 19; 1 = E-stop"),
+    (8, 108, "Reset OK LED", "OEM LED 800; 1 = ready"),
+    (9, 109, "In cycle LED", "OEM LED 804"),
+)
 
 
 class ModbusMach3Client:
@@ -221,6 +245,51 @@ class ModbusMach3Client:
     def do_stop(self) -> None:
         self.jog_off_all()
         self._pulse(HR_STOP, 1)
+
+    def debug_snapshot(self) -> dict:
+        """Live Cfg #0 / #1 words for the pendant Setup panel."""
+        now = time.monotonic()
+        regs = self._registers
+        with regs.lock:
+            poll_at = regs.last_poll_at
+            status_at = regs.status_written_at
+            cmd = [int(v) & 0xFFFF for v in regs.values[0:16]]
+            status = [int(v) & 0xFFFF for v in regs.values[100:116]]
+        return {
+            "available": True,
+            "backend": "modbus",
+            "poll_age_s": None if poll_at <= 0 else now - poll_at,
+            "status_write_age_s": None if status_at <= 0 else now - status_at,
+            "cfg0": [
+                {
+                    "local": local,
+                    "slave": local,
+                    "name": name,
+                    "hint": hint,
+                    "value": cmd[local],
+                }
+                for local, name, hint in _CFG0_ROWS
+            ],
+            "cfg1": [
+                {
+                    "local": local,
+                    "slave": slave,
+                    "name": name,
+                    "hint": hint,
+                    "value": status[local],
+                }
+                for local, slave, name, hint in _CFG1_ROWS
+            ],
+            "decoded": {
+                "x": decode_dro(status[0], status[1]),
+                "y": decode_dro(status[2], status[3]),
+                "z": decode_dro(status[4], status[5]),
+                "fro": status[6],
+                "estop": bool(status[7]),
+                "reset_ok": bool(status[8]),
+                "in_cycle": bool(status[9]),
+            },
+        }
 
     def do_reset(self) -> None:
         self.jog_off_all()
